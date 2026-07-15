@@ -92,7 +92,9 @@ impl OpenAiBackend {
         let request = json!({
             "model": self.model,
             "store": false,
-            "reasoning": { "effort": "none" },
+            // Reasoning tokens are billed within max_output_tokens, so every call site
+            // below budgets headroom for the reasoning pass plus the structured JSON output.
+            "reasoning": { "effort": "medium" },
             "max_output_tokens": max_output_tokens,
             "instructions": instructions,
             "input": [{
@@ -203,7 +205,7 @@ impl AgentBackend for OpenAiBackend {
             FERRIS_INSTRUCTIONS,
             input,
             plan_schema(),
-            180,
+            2000,
         )
         .await
     }
@@ -228,7 +230,7 @@ impl AgentBackend for OpenAiBackend {
                 FERRIS_INSTRUCTIONS,
                 input,
                 judgment_schema(),
-                400,
+                4000,
             )
             .await?;
         // Planning and the approved catalog, not model prose, own these fields.
