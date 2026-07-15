@@ -1,0 +1,280 @@
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Category {
+    Concurrency,
+    Ownership,
+    ErrorHandling,
+    Unsafe,
+    Automation,
+    Data,
+    Testing,
+    Other,
+}
+
+impl Category {
+    pub const ALL: [Self; 8] = [
+        Self::Concurrency,
+        Self::Ownership,
+        Self::ErrorHandling,
+        Self::Unsafe,
+        Self::Automation,
+        Self::Data,
+        Self::Testing,
+        Self::Other,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Concurrency => "concurrency",
+            Self::Ownership => "ownership",
+            Self::ErrorHandling => "error_handling",
+            Self::Unsafe => "unsafe",
+            Self::Automation => "automation",
+            Self::Data => "data",
+            Self::Testing => "testing",
+            Self::Other => "other",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubmissionInput {
+    pub id: String,
+    pub session_id: String,
+    pub text: String,
+    pub created_at: DateTime<Utc>,
+    pub hold_before_reply: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentPlan {
+    pub category: Category,
+    pub needs_lookup: bool,
+    pub search_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Remedy {
+    pub category: Category,
+    pub guidance: String,
+    pub suggested_tools: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AwardScores {
+    pub most_cursed: u8,
+    pub most_relatable: u8,
+    pub most_needlessly_rewritten: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Judgment {
+    #[serde(default = "default_display_confession")]
+    pub display_confession: String,
+    pub category: Category,
+    pub judgment: String,
+    pub severity: u8,
+    pub prescription: String,
+    pub suggested_tools: Vec<String>,
+    pub sentence: String,
+    pub award_scores: AwardScores,
+}
+
+fn default_display_confession() -> String {
+    "A programming confession.".to_owned()
+}
+
+impl Judgment {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        const MAX_DISPLAY_CHARS: usize = 180;
+        const MAX_SHORT_FIELD_CHARS: usize = 280;
+
+        anyhow::ensure!(
+            (1..=5).contains(&self.severity),
+            "severity must be between 1 and 5"
+        );
+        anyhow::ensure!(
+            self.award_scores.most_cursed <= 100,
+            "most_cursed must be <= 100"
+        );
+        anyhow::ensure!(
+            self.award_scores.most_relatable <= 100,
+            "most_relatable must be <= 100"
+        );
+        anyhow::ensure!(
+            self.award_scores.most_needlessly_rewritten <= 100,
+            "most_needlessly_rewritten must be <= 100"
+        );
+        anyhow::ensure!(
+            !self.display_confession.trim().is_empty(),
+            "display_confession cannot be empty"
+        );
+        anyhow::ensure!(
+            self.display_confession.chars().count() <= MAX_DISPLAY_CHARS,
+            "display_confession is too long"
+        );
+        anyhow::ensure!(!self.judgment.trim().is_empty(), "judgment cannot be empty");
+        anyhow::ensure!(
+            self.judgment.chars().count() <= MAX_SHORT_FIELD_CHARS,
+            "judgment is too long"
+        );
+        anyhow::ensure!(
+            !self.prescription.trim().is_empty(),
+            "prescription cannot be empty"
+        );
+        anyhow::ensure!(
+            self.prescription.chars().count() <= MAX_SHORT_FIELD_CHARS,
+            "prescription is too long"
+        );
+        anyhow::ensure!(!self.sentence.trim().is_empty(), "sentence cannot be empty");
+        anyhow::ensure!(
+            self.sentence.chars().count() <= MAX_SHORT_FIELD_CHARS,
+            "sentence is too long"
+        );
+        anyhow::ensure!(
+            (1..=5).contains(&self.suggested_tools.len()),
+            "suggested_tools must contain between one and five items"
+        );
+        anyhow::ensure!(
+            self.suggested_tools
+                .iter()
+                .all(|tool| !tool.trim().is_empty() && tool.chars().count() <= 64),
+            "suggested_tools contains an invalid item"
+        );
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubmissionStatus {
+    #[default]
+    Received,
+    Judging,
+    Researching,
+    Composing,
+    ReplyPending,
+    Sending,
+    Sent,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StageSubmission {
+    pub id: String,
+    pub workflow_id: String,
+    pub session_id: String,
+    pub text: String,
+    pub status: SubmissionStatus,
+    pub created_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<Category>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub judgment: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub severity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prescription: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sentence: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub award_scores: Option<AwardScores>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl StageSubmission {
+    pub fn received(input: &SubmissionInput, workflow_id: String) -> Self {
+        Self {
+            id: input.id.clone(),
+            workflow_id,
+            session_id: input.session_id.clone(),
+            // Raw audience input is deliberately kept out of the public projection. The
+            // structured judgment supplies a stage-safe display version a moment later.
+            text: "Confession received — Ferris is reviewing it…".to_owned(),
+            status: SubmissionStatus::Received,
+            created_at: input.created_at,
+            category: None,
+            judgment: None,
+            severity: None,
+            prescription: None,
+            sentence: None,
+            award_scores: None,
+            error: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StageUpdate {
+    pub id: String,
+    pub session_id: String,
+    pub status: SubmissionStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub judgment: Option<Judgment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowSnapshot {
+    pub submission: SubmissionInput,
+    pub status: SubmissionStatus,
+    pub plan: Option<AgentPlan>,
+    pub judgment: Option<Judgment>,
+    pub released: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ReleaseInput {
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Awards {
+    pub most_cursed: Option<String>,
+    pub most_relatable: Option<String>,
+    pub most_needlessly_rewritten: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PublicStageState {
+    pub worker_online: bool,
+    pub temporal_connected: bool,
+    pub model_mode: String,
+    pub held: bool,
+    pub show_raw_confessions: bool,
+    pub submissions: Vec<StageSubmission>,
+    pub awards: Awards,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn category_uses_stable_wire_names() {
+        assert_eq!(
+            serde_json::to_string(&Category::ErrorHandling).unwrap(),
+            "\"error_handling\""
+        );
+    }
+
+    #[test]
+    fn judgment_rejects_invalid_severity() {
+        let judgment = Judgment {
+            display_confession: "I trusted an undocumented invariant.".into(),
+            category: Category::Other,
+            judgment: "Questionable.".into(),
+            severity: 9,
+            prescription: "Use a type.".into(),
+            suggested_tools: vec![],
+            sentence: "Write a test.".into(),
+            award_scores: AwardScores::default(),
+        };
+        assert!(judgment.validate().is_err());
+    }
+}

@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0b0d12" />
+    <title>Rust Confessional</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#confession-form">Skip to submission form</a>
+    <div class="backdrop" aria-hidden="true"></div>
+
+    <header class="site-header">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">🦀</div>
+        <div>
+          <p class="eyebrow">Live agent demo</p>
+          <h1>Rust Confessional</h1>
+        </div>
+      </div>
+
+      <section class="system-bar" aria-label="Demo system status">
+        <div id="worker-panel" class="worker-status is-unknown">
+          <span class="status-light" aria-hidden="true"></span>
+          <div>
+            <span class="status-label">Worker</span>
+            <strong id="worker-status">Connecting…</strong>
+          </div>
+        </div>
+        <div class="system-detail">
+          <span id="temporal-status" class="detail-pill is-unknown">Temporal —</span>
+          <span id="model-mode" class="detail-pill">Model —</span>
+          <span id="hold-status" class="detail-pill is-hidden">Replies held</span>
+        </div>
+      </section>
+    </header>
+
+    <div id="raw-mode-warning" class="raw-mode-warning is-hidden" role="alert">
+      Raw input mode — incoming text is projected without moderation
+    </div>
+
+    <main>
+      <section class="hero-grid" aria-label="Submit and control the demo">
+        <div class="submit-panel panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Tell Ferris everything</p>
+              <h2>Your worst programming confession</h2>
+            </div>
+            <span class="command-hint" aria-hidden="true">01 / confess</span>
+          </div>
+
+          <form id="confession-form">
+            <label class="sr-only" for="confession-input">Programming confession</label>
+            <textarea
+              id="confession-input"
+              name="text"
+              rows="2"
+              maxlength="500"
+              required
+              placeholder="I fixed the race condition with a sleep…"
+            ></textarea>
+            <button id="submit-button" class="button button-primary" type="submit">
+              <span>Confess</span>
+              <span aria-hidden="true">→</span>
+            </button>
+          </form>
+          <p class="form-note">Ferris judges the decision, not the developer.</p>
+        </div>
+
+        <div class="demo-panel panel">
+          <div class="panel-heading compact-heading">
+            <div>
+              <p class="eyebrow">Stage controls</p>
+              <h2>Demo mode</h2>
+            </div>
+            <span class="command-hint" aria-hidden="true">02 / chaos</span>
+          </div>
+
+          <label class="hold-control" for="hold-toggle">
+            <span>
+              <strong>Hold before reply</strong>
+              <small>Build a queue, then kill the worker.</small>
+            </span>
+            <span class="switch">
+              <input id="hold-toggle" type="checkbox" role="switch" />
+              <span class="switch-track" aria-hidden="true"><span></span></span>
+            </span>
+          </label>
+
+          <div class="demo-actions">
+            <button id="seed-button" class="button button-secondary" type="button">Seed examples</button>
+            <button id="reset-button" class="button button-ghost danger" type="button">Reset demo</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="pipeline" aria-labelledby="pipeline-title">
+        <div class="section-title-row">
+          <div>
+            <p class="eyebrow">Durable agent loop</p>
+            <h2 id="pipeline-title">Pipeline</h2>
+          </div>
+          <div id="connection-state" class="live-indicator is-connecting" role="status">
+            <span aria-hidden="true"></span>
+            <span id="connection-label">Connecting</span>
+          </div>
+        </div>
+
+        <div class="stat-grid">
+          <article class="stat-card">
+            <span class="stat-step">01</span>
+            <strong id="stat-received">0</strong>
+            <span>Received</span>
+          </article>
+          <article class="stat-card accent-amber">
+            <span class="stat-step">02</span>
+            <strong id="stat-waiting">0</strong>
+            <span>Waiting</span>
+          </article>
+          <article class="stat-card accent-blue">
+            <span class="stat-step">03</span>
+            <strong id="stat-thinking">0</strong>
+            <span>Agent working</span>
+          </article>
+          <article class="stat-card accent-green">
+            <span class="stat-step">04</span>
+            <strong id="stat-judged">0</strong>
+            <span>Judged</span>
+          </article>
+        </div>
+      </section>
+
+      <div class="content-grid">
+        <section class="feed" aria-labelledby="feed-title">
+          <div class="section-title-row">
+            <div>
+              <p class="eyebrow">Audience feed</p>
+              <h2 id="feed-title">Confessions, live</h2>
+            </div>
+            <span id="submission-count" class="count-badge">0 submissions</span>
+          </div>
+
+          <div id="empty-state" class="empty-state">
+            <span aria-hidden="true">_</span>
+            <p>Waiting for the first confession<span class="ellipsis" aria-hidden="true">…</span></p>
+          </div>
+          <ol id="submission-list" class="submission-list" aria-live="polite" aria-relevant="additions"></ol>
+        </section>
+
+        <aside class="awards panel" aria-labelledby="awards-title">
+          <div class="panel-heading compact-heading">
+            <div>
+              <p class="eyebrow">Recovered from history</p>
+              <h2 id="awards-title">Hall of Shame</h2>
+            </div>
+            <span class="trophy" aria-hidden="true">✦</span>
+          </div>
+
+          <div class="award-list">
+            <article class="award-card" data-award="most_cursed">
+              <span class="award-number">I</span>
+              <div>
+                <h3>Most Cursed</h3>
+                <p>Awaiting enough evidence…</p>
+              </div>
+            </article>
+            <article class="award-card" data-award="most_relatable">
+              <span class="award-number">II</span>
+              <div>
+                <h3>Most Relatable</h3>
+                <p>Awaiting enough evidence…</p>
+              </div>
+            </article>
+            <article class="award-card" data-award="most_needlessly_rewritten">
+              <span class="award-number">III</span>
+              <div>
+                <h3>Most Needlessly Rewritten in Rust</h3>
+                <p>Awaiting enough evidence…</p>
+              </div>
+            </article>
+          </div>
+        </aside>
+      </div>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <p id="sr-status" class="sr-only" aria-live="polite"></p>
+  </body>
+</html>

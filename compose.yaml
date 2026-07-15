@@ -1,0 +1,62 @@
+name: rust-confessional
+
+services:
+  temporal:
+    image: temporalio/temporal:1.6.2
+    command:
+      - server
+      - start-dev
+      - --ip
+      - 0.0.0.0
+      - --db-filename
+      - /home/temporal/temporal.db
+    ports:
+      - "127.0.0.1:7233:7233"
+      - "127.0.0.1:8233:8233"
+    volumes:
+      - temporal-home:/home/temporal
+
+  stage:
+    build: .
+    command: ["stage"]
+    depends_on:
+      - temporal
+    environment:
+      BIND_ADDRESS: 0.0.0.0:3000
+      TEMPORAL_ADDRESS: http://temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TASK_QUEUE: rust-confessional
+      STAGE_DATA_PATH: /app/data/stage.json
+      STAGE_INTERNAL_TOKEN: demo-internal-token
+      MAX_SUBMISSIONS_PER_SESSION: ${MAX_SUBMISSIONS_PER_SESSION:-20}
+      SHOW_RAW_CONFESSIONS: ${SHOW_RAW_CONFESSIONS:-false}
+      ALLOW_UNMODERATED_TWILIO: ${ALLOW_UNMODERATED_TWILIO:-false}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_WEBHOOK_URL: ${TWILIO_WEBHOOK_URL:-}
+      RUST_LOG: rust_confessional=info,tower_http=info
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - stage-data:/app/data
+
+  worker:
+    build: .
+    command: ["worker"]
+    depends_on:
+      - temporal
+      - stage
+    environment:
+      TEMPORAL_ADDRESS: http://temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TASK_QUEUE: rust-confessional
+      STAGE_INTERNAL_URL: http://stage:3000/api/internal
+      STAGE_INTERNAL_TOKEN: demo-internal-token
+      MODEL_PROVIDER: ${MODEL_PROVIDER:-fixture}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
+      RUST_LOG: rust_confessional=info
+
+volumes:
+  temporal-home:
+  stage-data:
