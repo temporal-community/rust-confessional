@@ -2,6 +2,7 @@ pub mod activities;
 pub mod agent;
 pub mod config;
 pub mod domain;
+pub mod moderation;
 pub mod stage;
 pub mod temporal;
 pub(crate) mod twilio;

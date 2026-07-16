@@ -53,6 +53,9 @@ pub struct StageConfig {
     pub show_raw_confessions: bool,
     pub twilio: Option<TwilioInboundConfig>,
     pub temporal: TemporalConfig,
+    /// Operator-supplied words blanked on the stage projection. Sourced from
+    /// `MASK_WORDS`; kept out of the repository so no word list is bundled.
+    pub mask_words: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -84,8 +87,21 @@ impl StageConfig {
             show_raw_confessions,
             twilio,
             temporal: TemporalConfig::from_env(),
+            mask_words: parse_mask_words(&env_string("MASK_WORDS", "")),
         })
     }
+}
+
+/// Parse the `MASK_WORDS` list. Words may be separated by commas or any
+/// whitespace, and are lowercased so matching in `moderation` stays consistent.
+/// Masking is whole-word over alphanumeric runs, so entries containing other
+/// characters (hyphens, apostrophes, or multi-word phrases) could never match;
+/// those are dropped rather than stored as silent no-ops.
+fn parse_mask_words(raw: &str) -> Vec<String> {
+    raw.split(|character: char| character == ',' || character.is_whitespace())
+        .filter(|word| !word.is_empty() && word.chars().all(char::is_alphanumeric))
+        .map(str::to_lowercase)
+        .collect()
 }
 
 impl TwilioInboundConfig {

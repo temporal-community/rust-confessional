@@ -6,6 +6,8 @@ and produces a dry but useful judgment. The dashboard makes every transition
 visible. Kill the Worker at the controlled checkpoint, release the replies while
 it is offline, restart it, and watch Temporal resume the agent.
 
+![The Rust Confessional dashboard: confession form, durable agent pipeline, live confession feed, and the Hall of Shame awards](static/Ferris-Confessional.png)
+
 The talk-sized thesis is:
 
 > Rust makes the agent loop explicit. Temporal makes its progress survive.
@@ -131,12 +133,18 @@ export SHOW_RAW_CONFESSIONS=true
 docker compose up -d --force-recreate stage
 ```
 
-In this mode Stage normalizes control characters and whitespace, immediately
-projects the incoming text, persists it in the `stage-data` volume, and keeps it
-instead of replacing it with `display_confession`. Normalization is not
-redaction or moderation. The dashboard displays a prominent red **Raw input
-mode** banner whenever it is active. Never enable this mode for open audience
-input or a public Twilio number.
+In this mode Stage removes control characters and collapses whitespace (keeping
+letters, numbers, punctuation, and emoji), blanks any words listed in the
+optional `MASK_WORDS` environment variable, immediately projects the result,
+persists it in the `stage-data` volume, and keeps it instead of replacing it with
+`display_confession`. Submissions that are empty once control characters are
+removed are rejected. No word list is bundled in this repository; supply your own
+via `MASK_WORDS` (a comma- or space-separated list kept in your git-ignored `.env`).
+These guards raise the floor; they are not human moderation and cannot catch
+creative spellings, context, or personal information such as names or phone
+numbers. Keep a presenter kill switch (the Hold toggle and Reset) ready and
+rehearse with real inputs before allowing open audience input or a public Twilio
+number.
 
 Stage fails closed if Twilio is configured at the same time as raw display. It
 will start only if `ALLOW_UNMODERATED_TWILIO=true` is also explicit. That escape
@@ -336,8 +344,8 @@ Treat submissions as public conference content, not secrets:
 - Anyone who can reach the dashboard can view submissions and use its controls.
 - A model-produced stage-safe field reduces accidental projection of raw input;
   it is not a substitute for human moderation or an enforceable content policy.
-- Raw mode is returned as `show_raw_confessions` in `/api/state` and rendered as
-  a red dashboard warning. It is a warning, not an access-control mechanism.
+- Raw mode is reported as `show_raw_confessions` in `/api/state`. It is a status
+  flag, not an access-control mechanism.
 - Temporal Web can expose raw Workflow and model-Activity payloads even when the
   dashboard is in safe mode. Do not inspect arbitrary audience payloads on the
   projector.

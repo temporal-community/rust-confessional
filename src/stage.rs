@@ -107,6 +107,15 @@ impl StageApp {
             )));
         }
 
+        // Reject input that is empty once control characters and surrounding
+        // whitespace are removed. Emoji and punctuation count as content.
+        let cleaned = crate::moderation::sanitize_for_stage(&text);
+        if cleaned.is_empty() {
+            return Err(ApiError::bad_request(
+                "confession must contain visible text",
+            ));
+        }
+
         let (session_id, held) = self.store.session_and_hold().await;
         let id = requested_id.unwrap_or_else(|| Ulid::new().to_string());
         validate_submission_id(&id)?;
@@ -120,7 +129,9 @@ impl StageApp {
         let workflow_id = temporal::workflow_id(&input.session_id, &input.id);
         let mut staged = StageSubmission::received(&input, workflow_id.clone());
         if self.config.show_raw_confessions {
-            staged.text = projector_text(&input.text);
+            // Raw display: show the audience's own words, but sanitized to the
+            // stage character set and with any operator-listed words masked.
+            staged.text = crate::moderation::mask_words(&cleaned, &self.config.mask_words);
         }
         let (staged, inserted) = self
             .store
@@ -683,21 +694,6 @@ fn temporary_path(path: &Path) -> PathBuf {
     PathBuf::from(temporary)
 }
 
-fn projector_text(text: &str) -> String {
-    text.chars()
-        .map(|character| {
-            if character.is_control() {
-                ' '
-            } else {
-                character
-            }
-        })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 fn awards_for(submissions: &[StageSubmission]) -> Awards {
     fn winner(
         submissions: &[StageSubmission],
@@ -916,6 +912,7 @@ mod tests {
             temporal: TemporalConfig {
                 task_queue: "test".into(),
             },
+            mask_words: Vec::new(),
         })
         .await
         .unwrap();
