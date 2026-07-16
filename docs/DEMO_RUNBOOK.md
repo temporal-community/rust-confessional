@@ -104,7 +104,6 @@ Confirm the status strip shows:
 - Temporal: **connected**
 - Model: **Fixture**
 - Replies held
-- No red **Raw input mode** banner
 
 The Worker heartbeat is sent once per second and considered offline after three
 seconds without a heartbeat.
@@ -113,8 +112,8 @@ Keep `SHOW_RAW_CONFESSIONS=false` for public input, especially Twilio. In this
 mode incoming cards use a neutral placeholder until the agent returns a
 stage-safe paraphrase. Set the flag to `true` only for presenter-controlled,
 rehearsed text that is already safe to display; it immediately stores and serves
-normalized incoming text and does not replace it with the paraphrase. A red
-warning banner remains visible across the dashboard while raw mode is active.
+the sanitized incoming text (with any `MASK_WORDS` blanked) and does not replace
+it with the paraphrase.
 
 For a trusted-input rehearsal that specifically needs text to appear at intake:
 

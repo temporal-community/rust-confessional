@@ -242,16 +242,20 @@ path.
 neutral placeholder followed by the agent's stage-safe display confession, plus
 Workflow IDs, visible results, award scores, and the session-wide hold flag.
 
-When `SHOW_RAW_CONFESSIONS=true`, Stage replaces control characters with spaces,
-collapses whitespace, immediately persists and serves that normalized incoming
-text, and keeps it when the judgment arrives. This is a presentation convenience
-for trusted rehearsed inputs, not sanitization, redaction, or moderation. It
-must remain `false` for public audience or Twilio input. Returning the flag to
-`false` does not scrub raw rows already stored in the `stage-data` volume.
+When `SHOW_RAW_CONFESSIONS=true`, Stage removes control characters and collapses
+whitespace (keeping letters, numbers, punctuation, and emoji), blanks any words
+listed in the optional `MASK_WORDS` environment variable, rejects messages that
+are empty once control characters are removed, then immediately persists and
+serves that result and keeps it when the judgment arrives. No word list is
+bundled in the repository; operators supply their own via `MASK_WORDS`. This
+raises the floor for projecting audience text; it is not human moderation and
+cannot catch creative spellings, context, or personal information. The guard
+logic lives in `src/moderation.rs` with unit tests. Returning the flag to `false`
+does not scrub raw rows already stored in the `stage-data` volume.
 
-The public state includes `show_raw_confessions`, and the dashboard renders a
-prominent red raw-mode banner while it is true. Configuration also fails closed:
-if Twilio is configured with raw mode, Stage refuses to start unless
+The public state includes `show_raw_confessions` as a status flag. Configuration
+also fails closed: if Twilio is configured with raw mode, Stage refuses to start
+unless
 `ALLOW_UNMODERATED_TWILIO=true` is explicitly set. The override is intended only
 for controlled integration testing and does not add moderation or access
 control.

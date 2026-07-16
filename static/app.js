@@ -12,7 +12,6 @@ const elements = {
   temporalStatus: document.querySelector("#temporal-status"),
   modelMode: document.querySelector("#model-mode"),
   holdStatus: document.querySelector("#hold-status"),
-  rawModeWarning: document.querySelector("#raw-mode-warning"),
   holdToggle: document.querySelector("#hold-toggle"),
   seedButton: document.querySelector("#seed-button"),
   resetButton: document.querySelector("#reset-button"),
@@ -165,7 +164,6 @@ function renderSystem(state) {
 
   setText(elements.modelMode, `Model ${humanize(state.model_mode, "unknown")}`);
   elements.holdStatus.classList.toggle("is-hidden", !state.held);
-  elements.rawModeWarning.classList.toggle("is-hidden", !state.show_raw_confessions);
 
   if (!elements.holdToggle.disabled) elements.holdToggle.checked = Boolean(state.held);
 }
