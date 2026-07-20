@@ -80,6 +80,12 @@ pub struct Judgment {
     pub prescription: String,
     pub suggested_tools: Vec<String>,
     pub sentence: String,
+    /// A short, playful assignment ("Write a loop that prints foo then bar").
+    #[serde(default)]
+    pub penance: String,
+    /// The single repeatable line the dashboard renders looped `severity` times.
+    #[serde(default)]
+    pub penance_line: String,
     pub award_scores: AwardScores,
 }
 
@@ -134,6 +140,23 @@ impl Judgment {
             self.sentence.chars().count() <= MAX_SHORT_FIELD_CHARS,
             "sentence is too long"
         );
+        anyhow::ensure!(!self.penance.trim().is_empty(), "penance cannot be empty");
+        anyhow::ensure!(
+            self.penance.chars().count() <= MAX_SHORT_FIELD_CHARS,
+            "penance is too long"
+        );
+        anyhow::ensure!(
+            !self.penance_line.trim().is_empty(),
+            "penance_line cannot be empty"
+        );
+        anyhow::ensure!(
+            self.penance_line.chars().count() <= 48,
+            "penance_line is too long"
+        );
+        anyhow::ensure!(
+            !self.penance_line.contains(['\n', '\r']),
+            "penance_line must be a single line"
+        );
         anyhow::ensure!(
             (1..=5).contains(&self.suggested_tools.len()),
             "suggested_tools must contain between one and five items"
@@ -181,6 +204,12 @@ pub struct StageSubmission {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sentence: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub penance: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub penance_line: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub penance_reps: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub award_scores: Option<AwardScores>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -202,6 +231,9 @@ impl StageSubmission {
             severity: None,
             prescription: None,
             sentence: None,
+            penance: None,
+            penance_line: None,
+            penance_reps: None,
             award_scores: None,
             error: None,
         }
@@ -273,6 +305,8 @@ mod tests {
             prescription: "Use a type.".into(),
             suggested_tools: vec![],
             sentence: "Write a test.".into(),
+            penance: "Write a loop that prints foo then bar.".into(),
+            penance_line: "foo bar".into(),
             award_scores: AwardScores::default(),
         };
         assert!(judgment.validate().is_err());

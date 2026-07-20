@@ -641,6 +641,9 @@ impl StageStore {
                     judgment.suggested_tools.join(", ")
                 ));
                 submission.sentence = Some(judgment.sentence);
+                submission.penance_reps = Some(judgment.severity);
+                submission.penance = Some(judgment.penance);
+                submission.penance_line = Some(judgment.penance_line);
                 submission.award_scores = Some(judgment.award_scores);
             }
         }
