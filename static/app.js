@@ -160,9 +160,9 @@ function renderSystem(state) {
   const temporalConnected = Boolean(state.temporal_connected);
   elements.temporalStatus.classList.remove("is-unknown", "is-connected", "is-disconnected");
   elements.temporalStatus.classList.add(temporalConnected ? "is-connected" : "is-disconnected");
-  setText(elements.temporalStatus, `Temporal ${temporalConnected ? "connected" : "disconnected"}`);
+  setText(elements.temporalStatus, `Temporal: ${temporalConnected ? "Connected" : "Disconnected"}`);
 
-  setText(elements.modelMode, `Model ${humanize(state.model_mode, "unknown")}`);
+  setText(elements.modelMode, `Model: ${humanize(state.model_mode, "unknown")}`);
   elements.holdStatus.classList.toggle("is-hidden", !state.held);
 
   if (!elements.holdToggle.disabled) elements.holdToggle.checked = Boolean(state.held);
