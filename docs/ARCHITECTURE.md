@@ -68,9 +68,11 @@ Temporal development server; the naïve binary runs only through its Make target
 6. If the plan requests it, the `lookup_remedy` Activity reads the bundled,
    approved catalog. No live crate or documentation search is performed.
 7. The `compose` Activity returns a typed, validated `Judgment`, including a
-   stage-safe `display_confession` and the three award scores. In safe mode,
-   Stage replaces the placeholder with that display value. In raw-display mode,
-   it deliberately keeps the normalized incoming text.
+   stage-safe `display_confession`, a playful `penance` plus a short
+   `penance_line` (rendered on the dashboard as a loop repeated `severity`
+   times), and the three award scores. In safe mode, Stage replaces the
+   placeholder with the display value. In raw-display mode, it deliberately keeps
+   the sanitized incoming text.
 8. The Workflow records `ReplyPending` and waits if the submission was created
    while the global hold was enabled.
 9. Stage turning the hold off sends an idempotently identified `release` Signal
@@ -176,7 +178,7 @@ loop:
 Submission
   -> plan: category, lookup decision, search key
   -> optional approved remedy lookup
-  -> compose: judgment, severity, prescription, tools, sentence, award scores
+  -> compose: judgment, severity, prescription, tools, sentence, penance, award scores
   -> controlled release checkpoint
   -> delivery
 ```

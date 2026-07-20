@@ -29,6 +29,7 @@ const elements = {
 };
 
 let knownIds = new Set();
+let penanceAnimated = new Set();
 let hasRenderedState = false;
 let polling = false;
 let pollTimer = null;
@@ -255,6 +256,52 @@ function submissionCard(submission, isNew) {
     item.append(result);
   }
 
+  const penanceText = safeText(submission.penance).trim();
+  const penanceLine = safeText(submission.penance_line).trim();
+  const penanceReps = Number(submission.penance_reps) || 0;
+  if (penanceText && penanceLine && penanceReps > 0) {
+    const id = safeText(submission.id);
+    // Animate the loop only the first time this submission shows a penance;
+    // the feed re-renders every poll, so gate on an id set to avoid replaying.
+    const shouldAnimate = Boolean(id) && !penanceAnimated.has(id);
+    if (shouldAnimate && id) penanceAnimated.add(id);
+
+    const block = document.createElement("div");
+    block.className = `penance-block${shouldAnimate ? " is-typing" : ""}`;
+
+    const label = document.createElement("span");
+    label.className = "result-label";
+    label.textContent = `Penance · Ferris Level ${penanceReps}`;
+
+    const task = document.createElement("p");
+    task.className = "penance-task";
+    task.textContent = penanceText;
+
+    const code = document.createElement("pre");
+    code.className = "penance-code";
+
+    const open = document.createElement("div");
+    open.className = "penance-fixed";
+    open.textContent = `for _ in 0..${penanceReps} {`;
+    code.append(open);
+
+    for (let i = 0; i < penanceReps; i += 1) {
+      const line = document.createElement("div");
+      line.className = "penance-line";
+      line.style.setProperty("--i", String(i));
+      line.textContent = `    println!("${penanceLine}");`;
+      code.append(line);
+    }
+
+    const close = document.createElement("div");
+    close.className = "penance-fixed";
+    close.textContent = "}";
+    code.append(close);
+
+    block.append(label, task, code);
+    item.append(block);
+  }
+
   return item;
 }
 
@@ -438,6 +485,7 @@ elements.resetButton.addEventListener("click", async () => {
   elements.resetButton.textContent = "Reset demo";
   if (succeeded) {
     knownIds = new Set();
+    penanceAnimated = new Set();
     hasRenderedState = false;
   }
 });
