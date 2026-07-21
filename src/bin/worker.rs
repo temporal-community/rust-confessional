@@ -5,7 +5,7 @@ use rust_confessional::{
     agent::build_backend,
     config::WorkerConfig,
     init_tracing, temporal,
-    workflows::ConfessionWorkflow,
+    workflows::{ConfessionWorkflow, SessionWorkflow},
 };
 use temporalio_sdk::{Worker, WorkerOptions};
 use temporalio_sdk_core::{CoreRuntime, RuntimeOptions};
@@ -45,6 +45,7 @@ async fn main() -> anyhow::Result<()> {
 
     let options = WorkerOptions::new(&config.temporal.task_queue)
         .register_workflow::<ConfessionWorkflow>()?
+        .register_workflow::<SessionWorkflow>()?
         .register_activities(activities)
         .build();
     let mut worker = Worker::new(&runtime, client, options)

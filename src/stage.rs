@@ -31,6 +31,7 @@ use crate::{
     config::StageConfig,
     domain::{
         Awards, PublicStageState, StageSubmission, StageUpdate, SubmissionInput, SubmissionStatus,
+        WorkflowMode,
     },
     temporal,
     twilio::{compliance_keyword, form_field, parse_form_body, verify_twilio_signature},
@@ -72,6 +73,7 @@ impl StageApp {
             .route("/api/confessions", post(submit_confession))
             .route("/webhooks/twilio/messages", post(twilio_message))
             .route("/api/demo/hold", post(set_hold))
+            .route("/api/demo/mode", post(set_workflow_mode))
             .route("/api/demo/seed", post(seed_confessions))
             .route("/api/demo/reset", post(reset_demo))
             .route("/api/internal/update", post(internal_update))
@@ -117,6 +119,7 @@ impl StageApp {
         }
 
         let (session_id, held) = self.store.session_and_hold().await;
+        let mode = self.store.mode().await;
         let id = requested_id.unwrap_or_else(|| Ulid::new().to_string());
         validate_submission_id(&id)?;
         let mut input = SubmissionInput {
@@ -126,7 +129,10 @@ impl StageApp {
             created_at: Utc::now(),
             hold_before_reply: held,
         };
-        let workflow_id = temporal::workflow_id(&input.session_id, &input.id);
+        let workflow_id = match mode {
+            WorkflowMode::PerConfession => temporal::workflow_id(&input.session_id, &input.id),
+            WorkflowMode::Session => temporal::session_workflow_id(&input.session_id),
+        };
         let mut staged = StageSubmission::received(&input, workflow_id.clone());
         if self.config.show_raw_confessions {
             // Raw display: show the audience's own words, but sanitized to the
@@ -170,10 +176,31 @@ impl StageApp {
             }
         };
 
-        if let Err(error) =
-            temporal::start_submission(&client, &self.config.temporal.task_queue, input.clone())
-                .await
-        {
+        let queue = &self.config.temporal.task_queue;
+        let dispatch = match mode {
+            WorkflowMode::PerConfession => {
+                temporal::start_submission(&client, queue, input.clone())
+                    .await
+                    .map(|_| ())
+            }
+            WorkflowMode::Session => {
+                // Ensure the session Workflow exists, then Signal this confession in.
+                match temporal::start_session(&client, queue, &input.session_id).await {
+                    Ok(session_workflow_id) => {
+                        temporal::add_session_confession(
+                            &client,
+                            &session_workflow_id,
+                            input.clone(),
+                            &format!("add-{}", input.id),
+                        )
+                        .await
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+        };
+
+        if let Err(error) = dispatch {
             self.temporal.mark_disconnected();
             self.store
                 .mark_failed(&input.id, error.to_string())
@@ -209,6 +236,31 @@ impl StageApp {
             .client()
             .await
             .map_err(|_| ApiError::unavailable("Temporal is not connected yet"))?;
+
+        if self.store.mode().await == WorkflowMode::Session {
+            // One aggregate Workflow: a single release Signal frees the whole session.
+            let session_id = self.store.session_id().await;
+            let workflow_id = temporal::session_workflow_id(&session_id);
+            return match temporal::release_session(
+                &client,
+                &workflow_id,
+                &format!("release-{session_id}"),
+            )
+            .await
+            {
+                Ok(()) => {
+                    self.temporal.mark_connected();
+                    Ok(workflows.len())
+                }
+                Err(error) => {
+                    self.temporal.mark_disconnected();
+                    warn!(%workflow_id, %error, "could not release session Workflow");
+                    Err(ApiError::unavailable(
+                        "release signal failed; retry the control",
+                    ))
+                }
+            };
+        }
 
         let mut released = 0;
         let mut failed = 0;
@@ -280,6 +332,7 @@ async fn get_state(State(app): State<StageApp>) -> Json<PublicStageState> {
         model_mode,
         held: stored.held,
         show_raw_confessions: app.config.show_raw_confessions,
+        workflow_mode: stored.workflow_mode,
         submissions: stored.submissions,
         awards,
     })
@@ -405,6 +458,35 @@ async fn seed_confessions(State(app): State<StageApp>) -> Result<Json<SeedRespon
     Ok(Json(SeedResponse { accepted }))
 }
 
+#[derive(Debug, Deserialize)]
+struct ModeRequest {
+    mode: WorkflowMode,
+}
+
+async fn set_workflow_mode(
+    State(app): State<StageApp>,
+    Json(request): Json<ModeRequest>,
+) -> Result<StatusCode, ApiError> {
+    let _admission = app.admission.lock().await;
+    if app.store.mode().await == request.mode {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    // Reset on switch: drain the current session, then start a clean one in the
+    // new mode so the two architectures never interleave on stage.
+    app.release_current().await?;
+    if !app.wait_until_terminal(Duration::from_secs(12)).await {
+        return Err(ApiError::conflict(
+            "unfinished confessions are still draining; wait and switch again",
+        ));
+    }
+    app.store.reset().await.map_err(ApiError::internal)?;
+    app.store
+        .set_mode(request.mode)
+        .await
+        .map_err(ApiError::internal)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn reset_demo(State(app): State<StageApp>) -> Result<StatusCode, ApiError> {
     let _admission = app.admission.lock().await;
     app.release_current().await?;
@@ -525,6 +607,8 @@ impl TemporalGateway {
 struct StoredStageState {
     session_id: String,
     held: bool,
+    #[serde(default)]
+    workflow_mode: WorkflowMode,
     submissions: Vec<StageSubmission>,
 }
 
@@ -533,6 +617,7 @@ impl Default for StoredStageState {
         Self {
             session_id: Ulid::new().to_string(),
             held: true,
+            workflow_mode: WorkflowMode::default(),
             submissions: Vec::new(),
         }
     }
@@ -567,6 +652,20 @@ impl StageStore {
     async fn session_and_hold(&self) -> (String, bool) {
         let state = self.state.read().await;
         (state.session_id.clone(), state.held)
+    }
+
+    async fn mode(&self) -> WorkflowMode {
+        self.state.read().await.workflow_mode
+    }
+
+    async fn session_id(&self) -> String {
+        self.state.read().await.session_id.clone()
+    }
+
+    async fn set_mode(&self, mode: WorkflowMode) -> anyhow::Result<()> {
+        let _guard = self.persistence.lock().await;
+        self.state.write().await.workflow_mode = mode;
+        self.persist_locked().await
     }
 
     async fn insert_if_absent(

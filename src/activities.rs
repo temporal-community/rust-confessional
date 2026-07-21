@@ -87,9 +87,23 @@ impl ConfessionalActivities {
     #[activity]
     pub async fn compose(
         self: Arc<Self>,
-        _ctx: ActivityContext,
+        ctx: ActivityContext,
         input: ComposeInput,
     ) -> Result<Judgment, ActivityError> {
+        // Stage fault injection: a confession that mentions rate limiting makes the
+        // model call fail transiently on its first two attempts, so the audience can
+        // watch Temporal retry with backoff and recover on its own (high-level
+        // reliability) while the typed retryable error is Rust's job (low-level).
+        let attempt = ctx.info().attempt;
+        if simulates_rate_limit(&input.submission.text) && attempt <= 2 {
+            warn!(
+                attempt,
+                "injecting simulated model rate limit for the stage demo"
+            );
+            return Err(ActivityError::application(ApplicationFailure::new(
+                format!("simulated model rate limit (HTTP 429) on attempt {attempt}"),
+            )));
+        }
         self.backend
             .compose(&input.submission, &input.plan, input.remedy.as_ref())
             .await
@@ -181,6 +195,22 @@ impl StageReporter {
             sleep(Duration::from_secs(1)).await;
         }
     }
+}
+
+/// Stage-only trigger: confessions that mention rate limiting opt into a
+/// simulated transient model outage so the retry-and-recover beat is
+/// deterministic and needs no live, flaky API.
+fn simulates_rate_limit(text: &str) -> bool {
+    let text = text.to_ascii_lowercase();
+    [
+        "rate limit",
+        "rate-limit",
+        "ratelimit",
+        "429",
+        "too many requests",
+    ]
+    .iter()
+    .any(|marker| text.contains(marker))
 }
 
 fn model_error(error: ModelError) -> ActivityError {

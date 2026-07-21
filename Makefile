@@ -1,4 +1,4 @@
-.PHONY: up down build test lint logs status naive-run naive-forget naive-restart kill-worker restart-worker reset-demo
+.PHONY: up down build test lint logs status naive-run naive-forget naive-restart kill-worker restart-worker reset-demo partition-worker heal-worker
 
 build:
 	docker compose build
@@ -35,6 +35,14 @@ kill-worker:
 
 restart-worker:
 	docker compose up -d worker
+
+# Network partition: the Worker process stays alive but is cut off from Temporal
+# (and Stage). Workflows lose no progress and resume once the partition heals.
+partition-worker:
+	docker network disconnect rust-confessional_default rust-confessional-worker-1
+
+heal-worker:
+	docker network connect rust-confessional_default rust-confessional-worker-1
 
 reset-demo:
 	curl -fsS -X POST http://localhost:3000/api/demo/reset

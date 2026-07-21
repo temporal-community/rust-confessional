@@ -10,7 +10,8 @@ use temporalio_sdk::{
 use crate::{
     activities::{ComposeInput, ConfessionalActivities, DeliveryInput, LookupInput, stage_update},
     domain::{
-        AgentPlan, Judgment, ReleaseInput, SubmissionInput, SubmissionStatus, WorkflowSnapshot,
+        AgentPlan, Judgment, ReleaseInput, SessionConfession, SessionSnapshot, SubmissionInput,
+        SubmissionStatus, WorkflowSnapshot,
     },
 };
 
@@ -46,7 +47,7 @@ impl ConfessionWorkflow {
             .start_activity(
                 ConfessionalActivities::plan,
                 submission.clone(),
-                model_activity_options(),
+                activity_options(20, 75, 3),
             )
             .await;
         let plan = match plan_result {
@@ -65,7 +66,7 @@ impl ConfessionWorkflow {
                 .start_activity(
                     ConfessionalActivities::lookup_remedy,
                     LookupInput { plan: plan.clone() },
-                    tool_activity_options(),
+                    activity_options(5, 15, 3),
                 )
                 .await;
             match lookup_result {
@@ -89,7 +90,7 @@ impl ConfessionWorkflow {
                     plan,
                     remedy,
                 },
-                model_activity_options(),
+                activity_options(20, 75, 3),
             )
             .await;
         let judgment = match judgment_result {
@@ -129,7 +130,8 @@ impl ConfessionWorkflow {
                 DeliveryInput {
                     submission_id: submission.id.clone(),
                 },
-                delivery_activity_options(),
+                // Delivery is at-least-once; deduplicate by submission id before raising attempts.
+                activity_options(10, 30, 1),
             )
             .await;
         if let Err(error) = delivery_result {
@@ -165,6 +167,292 @@ impl ConfessionWorkflow {
     }
 }
 
+/// The aggregate demo variant: a single long-lived Workflow for an entire
+/// session. Confessions arrive by Signal and are folded into one durable state
+/// via `state_mut`. Same Activities as the per-confession Workflow, different
+/// granularity. In production you would run one Workflow per confession (see
+/// `ConfessionWorkflow`); this exists to make durable state visible on stage.
+#[workflow]
+pub struct SessionWorkflow {
+    session_id: String,
+    confessions: Vec<SessionConfession>,
+}
+
+#[workflow_methods]
+impl SessionWorkflow {
+    #[init]
+    pub fn new(_ctx: &WorkflowContextView, session_id: String) -> Self {
+        Self {
+            session_id,
+            confessions: Vec::new(),
+        }
+    }
+
+    #[run]
+    pub async fn run(ctx: &mut WorkflowContext<Self>) -> WorkflowResult<()> {
+        // Two phases, one item at a time so the aggregate stays deterministic and
+        // clear of the preview SDK's dynamic-future edges: compose every received
+        // confession first (the board fills with held judgments), then deliver the
+        // ones that have been released. A failed item is isolated and never fails
+        // the whole session.
+        loop {
+            ctx.wait_condition(|state| {
+                state.confessions.iter().any(is_composable)
+                    || state.confessions.iter().any(is_deliverable)
+            })
+            .await;
+
+            if let Some(id) = ctx.state(|state| first_matching(state, is_composable)) {
+                compose_confession(ctx, id).await;
+            } else if let Some(id) = ctx.state(|state| first_matching(state, is_deliverable)) {
+                deliver_confession(ctx, id).await;
+            }
+        }
+    }
+
+    #[signal]
+    pub fn add_confession(
+        &mut self,
+        _ctx: &mut SyncWorkflowContext<Self>,
+        submission: SubmissionInput,
+    ) {
+        if self
+            .confessions
+            .iter()
+            .any(|item| item.submission.id == submission.id)
+        {
+            return;
+        }
+        // Honor the per-confession hold, exactly like ConfessionWorkflow::new.
+        let released = !submission.hold_before_reply;
+        self.confessions.push(SessionConfession {
+            submission,
+            status: SubmissionStatus::Received,
+            plan: None,
+            judgment: None,
+            released,
+        });
+    }
+
+    #[signal]
+    pub fn release(&mut self, _ctx: &mut SyncWorkflowContext<Self>, _input: ReleaseInput) {
+        // Free every confession that has not already finished.
+        for item in &mut self.confessions {
+            if !matches!(
+                item.status,
+                SubmissionStatus::Sent | SubmissionStatus::Failed
+            ) {
+                item.released = true;
+            }
+        }
+    }
+
+    #[query]
+    pub fn snapshot(&self, _ctx: &WorkflowContextView) -> SessionSnapshot {
+        SessionSnapshot {
+            session_id: self.session_id.clone(),
+            confessions: self.confessions.clone(),
+        }
+    }
+}
+
+fn is_composable(item: &SessionConfession) -> bool {
+    matches!(item.status, SubmissionStatus::Received)
+}
+
+fn is_deliverable(item: &SessionConfession) -> bool {
+    matches!(item.status, SubmissionStatus::ReplyPending) && item.released
+}
+
+fn first_matching(
+    state: &SessionWorkflow,
+    predicate: fn(&SessionConfession) -> bool,
+) -> Option<String> {
+    state
+        .confessions
+        .iter()
+        .find(|&item| predicate(item))
+        .map(|item| item.submission.id.clone())
+}
+
+fn find_submission(
+    ctx: &mut WorkflowContext<SessionWorkflow>,
+    id: &str,
+) -> Option<SubmissionInput> {
+    ctx.state(|state| {
+        state
+            .confessions
+            .iter()
+            .find(|item| item.submission.id == id)
+            .map(|item| item.submission.clone())
+    })
+}
+
+/// Judge, research, and compose one confession, parking it at `ReplyPending`.
+/// Delivery is intentionally not gated here so the whole board can fill with held
+/// judgments before any release.
+async fn compose_confession(ctx: &mut WorkflowContext<SessionWorkflow>, id: String) {
+    let Some(submission) = find_submission(ctx, &id) else {
+        return;
+    };
+    set_item(ctx, &submission, SubmissionStatus::Judging, None).await;
+    let plan = match ctx
+        .start_activity(
+            ConfessionalActivities::plan,
+            submission.clone(),
+            activity_options(20, 75, 3),
+        )
+        .await
+    {
+        Ok(plan) => plan,
+        Err(_) => return fail_item(ctx, &submission).await,
+    };
+    update_item(ctx, &id, |item| item.plan = Some(plan.clone()));
+
+    let remedy = if plan.needs_lookup {
+        set_item(ctx, &submission, SubmissionStatus::Researching, None).await;
+        match ctx
+            .start_activity(
+                ConfessionalActivities::lookup_remedy,
+                LookupInput { plan: plan.clone() },
+                activity_options(5, 15, 3),
+            )
+            .await
+        {
+            Ok(remedy) => Some(remedy),
+            Err(_) => return fail_item(ctx, &submission).await,
+        }
+    } else {
+        None
+    };
+
+    set_item(ctx, &submission, SubmissionStatus::Composing, None).await;
+    let judgment = match ctx
+        .start_activity(
+            ConfessionalActivities::compose,
+            ComposeInput {
+                submission: submission.clone(),
+                plan,
+                remedy,
+            },
+            activity_options(20, 75, 3),
+        )
+        .await
+    {
+        Ok(judgment) => judgment,
+        Err(_) => return fail_item(ctx, &submission).await,
+    };
+    update_item(ctx, &id, |item| {
+        item.status = SubmissionStatus::ReplyPending;
+        item.judgment = Some(judgment.clone());
+    });
+    report_session(
+        ctx,
+        &submission,
+        SubmissionStatus::ReplyPending,
+        Some(judgment),
+    )
+    .await;
+}
+
+/// Deliver one released confession, moving it from `ReplyPending` to `Sent`.
+async fn deliver_confession(ctx: &mut WorkflowContext<SessionWorkflow>, id: String) {
+    let Some(submission) = find_submission(ctx, &id) else {
+        return;
+    };
+    let judgment = ctx.state(|state| {
+        state
+            .confessions
+            .iter()
+            .find(|item| item.submission.id == id)
+            .and_then(|item| item.judgment.clone())
+    });
+
+    set_item(
+        ctx,
+        &submission,
+        SubmissionStatus::Sending,
+        judgment.clone(),
+    )
+    .await;
+    let delivery_result = ctx
+        .start_activity(
+            ConfessionalActivities::deliver,
+            DeliveryInput {
+                submission_id: submission.id.clone(),
+            },
+            activity_options(10, 30, 1),
+        )
+        .await;
+    if delivery_result.is_err() {
+        return fail_item(ctx, &submission).await;
+    }
+    set_item(ctx, &submission, SubmissionStatus::Sent, judgment).await;
+}
+
+fn update_item<F>(ctx: &mut WorkflowContext<SessionWorkflow>, id: &str, mutate: F)
+where
+    F: FnOnce(&mut SessionConfession),
+{
+    ctx.state_mut(|state| {
+        if let Some(item) = state
+            .confessions
+            .iter_mut()
+            .find(|item| item.submission.id == id)
+        {
+            mutate(item);
+        }
+    });
+}
+
+async fn set_item(
+    ctx: &mut WorkflowContext<SessionWorkflow>,
+    submission: &SubmissionInput,
+    status: SubmissionStatus,
+    judgment: Option<Judgment>,
+) {
+    update_item(ctx, &submission.id, |item| item.status = status);
+    report_session(ctx, submission, status, judgment).await;
+}
+
+async fn report_session(
+    ctx: &mut WorkflowContext<SessionWorkflow>,
+    submission: &SubmissionInput,
+    status: SubmissionStatus,
+    judgment: Option<Judgment>,
+) {
+    let _ = ctx
+        .start_activity(
+            ConfessionalActivities::report_stage,
+            stage_update(submission, status, judgment),
+            activity_options(5, 12, 2),
+        )
+        .await;
+}
+
+async fn fail_item(ctx: &mut WorkflowContext<SessionWorkflow>, submission: &SubmissionInput) {
+    update_item(ctx, &submission.id, |item| {
+        item.status = SubmissionStatus::Failed
+    });
+    let _ = ctx
+        .start_activity(
+            ConfessionalActivities::report_stage,
+            failure_update(submission),
+            activity_options(5, 12, 2),
+        )
+        .await;
+}
+
+fn failure_update(submission: &SubmissionInput) -> crate::domain::StageUpdate {
+    crate::domain::StageUpdate {
+        id: submission.id.clone(),
+        session_id: submission.session_id.clone(),
+        status: SubmissionStatus::Failed,
+        judgment: None,
+        error: Some("Agent step failed; inspect the Worker logs for details.".to_owned()),
+    }
+}
+
 fn set_status(ctx: &mut WorkflowContext<ConfessionWorkflow>, status: SubmissionStatus) {
     ctx.state_mut(|state| state.status = status);
 }
@@ -180,7 +468,7 @@ async fn report(
         .start_activity(
             ConfessionalActivities::report_stage,
             stage_update(submission, status, judgment),
-            report_activity_options(),
+            activity_options(5, 12, 2),
         )
         .await;
 }
@@ -190,62 +478,27 @@ async fn report_failure(
     submission: &SubmissionInput,
 ) {
     set_status(ctx, SubmissionStatus::Failed);
-    let update = crate::domain::StageUpdate {
-        id: submission.id.clone(),
-        session_id: submission.session_id.clone(),
-        status: SubmissionStatus::Failed,
-        judgment: None,
-        error: Some("Agent step failed; inspect the Worker logs for details.".to_owned()),
-    };
     let _ = ctx
         .start_activity(
             ConfessionalActivities::report_stage,
-            update,
-            report_activity_options(),
+            failure_update(submission),
+            activity_options(5, 12, 2),
         )
         .await;
 }
 
-fn retry_policy(maximum_attempts: i32) -> RetryPolicy {
-    RetryPolicy {
+fn activity_options(
+    start_to_close: u64,
+    schedule_to_close: u64,
+    maximum_attempts: i32,
+) -> ActivityOptions {
+    ActivityOptions::with_close_timeouts(ActivityCloseTimeouts::Both {
+        start_to_close: Duration::from_secs(start_to_close),
+        schedule_to_close: Duration::from_secs(schedule_to_close),
+    })
+    .retry_policy(RetryPolicy {
         maximum_attempts,
         ..Default::default()
-    }
-}
-
-fn model_activity_options() -> ActivityOptions {
-    ActivityOptions::with_close_timeouts(ActivityCloseTimeouts::Both {
-        start_to_close: Duration::from_secs(20),
-        schedule_to_close: Duration::from_secs(75),
     })
-    .retry_policy(retry_policy(3))
-    .build()
-}
-
-fn tool_activity_options() -> ActivityOptions {
-    ActivityOptions::with_close_timeouts(ActivityCloseTimeouts::Both {
-        start_to_close: Duration::from_secs(5),
-        schedule_to_close: Duration::from_secs(15),
-    })
-    .retry_policy(retry_policy(3))
-    .build()
-}
-
-fn report_activity_options() -> ActivityOptions {
-    ActivityOptions::with_close_timeouts(ActivityCloseTimeouts::Both {
-        start_to_close: Duration::from_secs(5),
-        schedule_to_close: Duration::from_secs(12),
-    })
-    .retry_policy(retry_policy(2))
-    .build()
-}
-
-fn delivery_activity_options() -> ActivityOptions {
-    ActivityOptions::with_close_timeouts(ActivityCloseTimeouts::Both {
-        start_to_close: Duration::from_secs(10),
-        schedule_to_close: Duration::from_secs(30),
-    })
-    // Delivery implementations must deduplicate by submission id before increasing this.
-    .retry_policy(retry_policy(1))
     .build()
 }
