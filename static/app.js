@@ -11,8 +11,10 @@ const elements = {
   workerStatus: document.querySelector("#worker-status"),
   temporalStatus: document.querySelector("#temporal-status"),
   modelMode: document.querySelector("#model-mode"),
+  workflowMode: document.querySelector("#workflow-mode"),
   holdStatus: document.querySelector("#hold-status"),
   holdToggle: document.querySelector("#hold-toggle"),
+  modeToggle: document.querySelector("#mode-toggle"),
   seedButton: document.querySelector("#seed-button"),
   resetButton: document.querySelector("#reset-button"),
   connectionState: document.querySelector("#connection-state"),
@@ -164,6 +166,11 @@ function renderSystem(state) {
   setText(elements.temporalStatus, `Temporal: ${temporalConnected ? "Connected" : "Disconnected"}`);
 
   setText(elements.modelMode, `Model: ${humanize(state.model_mode, "unknown")}`);
+
+  const aggregate = state.workflow_mode === "session";
+  setText(elements.workflowMode, `Workflow: ${aggregate ? "Aggregate" : "Per confession"}`);
+  if (!elements.modeToggle.disabled) elements.modeToggle.checked = aggregate;
+
   elements.holdStatus.classList.toggle("is-hidden", !state.held);
 
   if (!elements.holdToggle.disabled) elements.holdToggle.checked = Boolean(state.held);
@@ -459,6 +466,34 @@ elements.holdToggle.addEventListener("change", async () => {
     showToast(error.name === "AbortError" ? "The request timed out." : error.message, true);
   } finally {
     elements.holdToggle.disabled = false;
+  }
+});
+
+elements.modeToggle.addEventListener("change", async () => {
+  const wantsSession = elements.modeToggle.checked;
+  const mode = wantsSession ? "session" : "per_confession";
+  elements.modeToggle.disabled = true;
+
+  try {
+    await request("/api/demo/mode", {
+      method: "POST",
+      body: JSON.stringify({ mode }),
+    });
+    showToast(
+      wantsSession
+        ? "Aggregate workflow mode. Demo reset."
+        : "Per-confession mode. Demo reset.",
+    );
+    // Switching resets the session server-side; drop local render state to match.
+    knownIds = new Set();
+    penanceAnimated = new Set();
+    hasRenderedState = false;
+    await pollState();
+  } catch (error) {
+    elements.modeToggle.checked = !wantsSession;
+    showToast(error.name === "AbortError" ? "The request timed out." : error.message, true);
+  } finally {
+    elements.modeToggle.disabled = false;
   }
 });
 

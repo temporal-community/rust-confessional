@@ -19,7 +19,9 @@ Temporal installed on the host.
 
 - A tiny in-memory `naive` agent for the opening failure contrast
 - A Rust/Axum stage server and live browser dashboard
-- One Temporal Workflow per confession
+- One Temporal Workflow per confession (production shape), with a dashboard
+  toggle to an aggregate one-Workflow-per-session mode that makes durable state
+  vivid on stage
 - Typed Activities for planning, remedy lookup, composition, projection, and
   delivery
 - A deterministic fixture model for rehearsals and offline stage use
@@ -28,6 +30,11 @@ Temporal installed on the host.
 - A safe-by-default stage feed using the agent's display paraphrase, plus an
   explicit trusted-input switch for showing incoming text immediately
 - A deliberate `Reply Pending` checkpoint and durable `release` Signal
+- A dry, model-written `penance` rendered on the dashboard as a loop that types
+  itself out, repeated by severity
+- Three stage failure beats — a transient model rate-limit that Temporal retries
+  and heals, a network partition, and a Worker crash — contrasting Temporal's
+  high-level reliability with Rust's low-level reliability
 - Persistent Docker volumes for Temporal history and the dashboard projection
 - Three score-based “Hall of Shame” awards, selected only from `Sent` rows
 
@@ -242,10 +249,48 @@ messages are acknowledged without starting Workflows.
 The response is empty TwiML. There is no outbound Twilio API call and no SMS
 judgment; results appear on the stage dashboard. An unsigned request is rejected.
 
-## Stage failure demo
+## Failure modes to demo
 
-Use the dashboard to keep replies held, submit or seed confessions, and wait
-until they show `Reply Pending`. Then run:
+The demo shows reliability at two layers, and each beat exercises one:
+
+- **Temporal (high-level):** durable retries with backoff, Activity timeouts,
+  at-least-once Task redelivery, and Workflow state that survives crashes and
+  partitions.
+- **Rust (low-level):** typed retryable-versus-permanent errors, bounded HTTP
+  timeouts, and a Worker that reconnects cleanly, all checked by the compiler.
+
+Three beats, escalating from a recoverable glitch to outright process death.
+Full speaker cues and fallbacks are in
+[docs/DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md).
+
+### 1. Transient model failure (rate-limit or downtime)
+
+Submit a confession that mentions rate limiting, for example
+"the API keeps rate-limiting my agent". The `compose` Activity returns a
+*retryable* error on its first two attempts and succeeds on the third, keyed on
+the Activity's own attempt counter. The card stays in `Composing` while Temporal
+retries with backoff (the attempts are visible in Temporal Web), then recovers
+with no operator action. Rust decides the error is retryable; Temporal owns the
+backoff and keeps the Workflow durable. This works in both fixture and OpenAI
+mode.
+
+### 2. Network partition
+
+```sh
+make partition-worker
+make heal-worker
+```
+
+`partition-worker` disconnects the Worker container from the Compose network, so
+the process keeps running but cannot reach Temporal (or Stage). Workflows make no
+progress and lose nothing; `heal-worker` reconnects it and Temporal redelivers
+the pending Tasks so execution resumes. This is distinct from a crash: the
+process never died, it was only isolated.
+
+### 3. Worker crash and recovery
+
+Keep replies held, submit or seed confessions, and wait until they show
+`Reply Pending`. Then run:
 
 ```sh
 make kill-worker
@@ -253,7 +298,7 @@ make kill-worker
 
 After about three seconds the dashboard reports the Worker offline. While it is
 offline, turn **Hold before reply** off in the dashboard. Temporal accepts the
-Signal, but no Worker is available to advance the Workflow. Restart it:
+release Signal, but no Worker is available to advance the Workflow. Restart it:
 
 ```sh
 make restart-worker
@@ -261,9 +306,69 @@ make restart-worker
 
 The Worker replays Workflow history and continues through `Sending` to `Sent`.
 Only then do those rows become eligible for the Hall of Shame, so the awards
-reveal lands after recovery. The stage process and Temporal server stay up
-throughout. Full speaker cues and fallbacks are in
-[docs/DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md).
+reveal lands after recovery. The Stage process and Temporal server stay up
+throughout.
+
+## Workflow design and best practices
+
+### How it is built
+
+- **One Workflow per confession.** Each submission starts its own
+  `ConfessionWorkflow` with a stable, readable Workflow ID
+  (`rust-confession-{session}-{submission}`). This is the idiomatic unit of work
+  and scales to very large numbers of Workflows.
+- **Deterministic orchestration, side effects in Activities.** The Workflow
+  decides *what* happens and in what order; every model call, catalog lookup,
+  status report, and delivery runs behind an Activity boundary so replay stays
+  deterministic.
+- **Durable in-process state.** The Workflow folds each result into its own
+  state with `ctx.state_mut(...)` (plan, judgment, status, release flag). That
+  state is rebuilt by replay after any failure and exposed through the `snapshot`
+  query. Because a Workflow runs single-threaded and deterministic, it needs no
+  locks and has no data races, and the Rust type system still guarantees it. This
+  "one durable object, many calls, no locks" property is the heart of the demo.
+- **Per-operation timeouts and retries.** Each Activity has an explicit
+  start-to-close and schedule-to-close timeout and a retry budget; see
+  `activity_options` in `src/workflows.rs`.
+
+### Best practices worth taking away
+
+- Model the contract between steps as **typed Rust values**, not loose strings.
+- Keep **Workflow code deterministic**; push all I/O, time, and randomness into
+  Activities.
+- Give every side effect an **explicit timeout and retry budget**, and mark
+  permanent failures non-retryable so they fail fast.
+- Treat external effects as **at-least-once** and deduplicate (delivery is capped
+  at one attempt until it dedupes by submission ID).
+- Prefer **one Workflow per unit of work**. Temporal scales by running many
+  Workflows, not by cramming requests into one. Consolidate into a per-entity,
+  per-window, or per-region Workflow only when the domain needs aggregation,
+  ordering, windowing, or rate-limiting, not for raw throughput. A single
+  long-lived Workflow that ingests everything also needs continue-as-new for
+  history growth and is where the preview Rust SDK is thinnest.
+- Pin **SDK versions** and treat upgrades as deliberate replay-compatibility
+  work; use **stable Workflow IDs** and **durable Signals**.
+
+### Production vs demo: the workflow-mode toggle
+
+The dashboard has an **Aggregate workflow** switch (and `POST /api/demo/mode`)
+that flips between the two shapes so you can show the difference live:
+
+- **Per confession (default, production):** one `ConfessionWorkflow` per
+  submission. In Temporal Web you see one Workflow per confession — the shape you
+  would ship.
+- **Aggregate (demo):** one long-lived `SessionWorkflow` for the whole session.
+  Every confession arrives by Signal and is folded into that single Workflow's
+  durable state via `state_mut`, so the entire board is one durable object you
+  can inspect with its `snapshot` query. In Temporal Web you see exactly one
+  Workflow.
+
+Both modes run the same Activities and report to the same dashboard; only the
+Workflow granularity differs. Switching modes resets the session so the two never
+interleave. Use the aggregate mode to make durable state vivid on stage; keep the
+per-confession mode as the production reference.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
 
 ## Useful commands
 
@@ -281,6 +386,8 @@ throughout. Full speaker cues and fallbacks are in
 | `make naive-restart` | Start a fresh naïve process and show that zero items recover |
 | `make kill-worker` | Send `SIGKILL` to only the Worker container |
 | `make restart-worker` | Start the stopped Worker container |
+| `make partition-worker` | Disconnect the Worker from the Compose network (simulate a network partition) |
+| `make heal-worker` | Reconnect the Worker to the Compose network |
 | `make reset-demo` | Pause admissions, release unfinished Workflows, wait up to 12 seconds, then start a fresh session |
 
 For a completely clean rehearsal, including deleting both named volumes:
@@ -314,6 +421,7 @@ GET  /healthz
 GET  /api/state
 POST /api/confessions       {"text":"I fixed the race with a sleep."}
 POST /api/demo/hold         {"held":true}
+POST /api/demo/mode         {"mode":"session"}   or {"mode":"per_confession"}
 POST /api/demo/seed
 POST /api/demo/reset
 POST /webhooks/twilio/messages   signed Twilio form; optional

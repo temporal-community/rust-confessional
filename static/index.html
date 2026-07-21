@@ -6,8 +6,8 @@
     <meta name="color-scheme" content="light" />
     <meta name="theme-color" content="#ffffff" />
     <title>Rust Confessional</title>
-    <link rel="stylesheet" href="/styles.css?v=3" />
-    <script src="/app.js?v=3" defer></script>
+    <link rel="stylesheet" href="/styles.css?v=4" />
+    <script src="/app.js?v=4" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#confession-form">Skip to submission form</a>
@@ -33,6 +33,7 @@
         <div class="system-detail">
           <span id="temporal-status" class="detail-pill is-unknown">Temporal: —</span>
           <span id="model-mode" class="detail-pill">Model: —</span>
+          <span id="workflow-mode" class="detail-pill">Workflow: —</span>
           <span id="hold-status" class="detail-pill is-hidden">Replies held</span>
         </div>
       </section>
@@ -83,6 +84,17 @@
             </span>
             <span class="switch">
               <input id="hold-toggle" type="checkbox" role="switch" />
+              <span class="switch-track" aria-hidden="true"><span></span></span>
+            </span>
+          </label>
+
+          <label class="hold-control" for="mode-toggle">
+            <span>
+              <strong>Aggregate workflow</strong>
+              <small>One Temporal workflow for the whole session (demo). Off is one per confession (production). Switching resets the demo.</small>
+            </span>
+            <span class="switch">
+              <input id="mode-toggle" type="checkbox" role="switch" />
               <span class="switch-track" aria-hidden="true"><span></span></span>
             </span>
           </label>

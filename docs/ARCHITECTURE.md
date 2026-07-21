@@ -149,6 +149,22 @@ projection rather than querying each Workflow.
 The release Signal includes a request ID derived from the submission ID. This
 lets the client identify duplicate signal requests consistently.
 
+### Aggregate variant: `SessionWorkflow`
+
+A second Workflow type exists for the stage demo, selected by the `workflow_mode`
+toggle (`POST /api/demo/mode`). `SessionWorkflow` is one long-lived execution per
+session; confessions arrive through an `add_confession` Signal, are queued, and
+are processed one at a time, each folded into a single durable state via
+`state_mut`. It shares the same Activities and the same `release` Signal, exposes
+a `snapshot() -> SessionSnapshot` Query over the whole board, and isolates
+per-item failures so one bad confession does not fail the session.
+
+The default and production shape is one `ConfessionWorkflow` per confession;
+`SessionWorkflow` exists to make durable state visible on stage (one Workflow in
+Temporal Web, one object holding everything). Switching modes resets the session
+so the two never interleave. A single long-lived Workflow like this would need
+continue-as-new for history growth beyond a demo session.
+
 ## Activity policies
 
 Each side effect has an explicit timeout and retry budget:

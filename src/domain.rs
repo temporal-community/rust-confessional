@@ -260,6 +260,26 @@ pub struct WorkflowSnapshot {
     pub released: bool,
 }
 
+/// One confession's state as held inside the aggregate `SessionWorkflow`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionConfession {
+    pub submission: SubmissionInput,
+    pub status: SubmissionStatus,
+    pub plan: Option<AgentPlan>,
+    pub judgment: Option<Judgment>,
+    /// Per-confession release flag, mirroring `ConfessionWorkflow`: it starts as
+    /// `!hold_before_reply` and the release Signal frees the held ones.
+    pub released: bool,
+}
+
+/// The aggregate `SessionWorkflow`'s durable state, returned by its query. This
+/// is the "one durable object holding the whole board" that `state_mut` builds.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionSnapshot {
+    pub session_id: String,
+    pub confessions: Vec<SessionConfession>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ReleaseInput {
     pub reason: String,
@@ -272,6 +292,17 @@ pub struct Awards {
     pub most_needlessly_rewritten: Option<String>,
 }
 
+/// How Stage turns confessions into Workflows.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkflowMode {
+    /// Production shape: one `ConfessionWorkflow` per confession.
+    #[default]
+    PerConfession,
+    /// Demo shape: one aggregate `SessionWorkflow` for the whole session.
+    Session,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PublicStageState {
     pub worker_online: bool,
@@ -279,6 +310,7 @@ pub struct PublicStageState {
     pub model_mode: String,
     pub held: bool,
     pub show_raw_confessions: bool,
+    pub workflow_mode: WorkflowMode,
     pub submissions: Vec<StageSubmission>,
     pub awards: Awards,
 }
