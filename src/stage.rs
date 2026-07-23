@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -28,13 +29,14 @@ use tracing::{info, warn};
 use ulid::Ulid;
 
 use crate::{
-    config::StageConfig,
+    config::{StageConfig, TwilioPollConfig},
     domain::{
         Awards, PublicStageState, StageSubmission, StageUpdate, SubmissionInput, SubmissionStatus,
         WorkflowMode,
     },
     temporal,
     twilio::{compliance_keyword, form_field, parse_form_body, verify_twilio_signature},
+    twilio_poll::TwilioClient,
 };
 
 const SEED_CONFESSIONS: &[&str] = &[
@@ -300,9 +302,15 @@ impl StageApp {
 
 pub async fn run(config: StageConfig) -> anyhow::Result<()> {
     let bind_address = config.bind_address;
+    let poll_config = config.twilio_poll.clone();
     let app = StageApp::new(config).await?;
     let gateway = app.temporal.clone();
     tokio::spawn(async move { gateway.connection_loop().await });
+
+    if let Some(poll_config) = poll_config {
+        let poller_app = app.clone();
+        tokio::spawn(async move { run_twilio_poller(poller_app, poll_config).await });
+    }
 
     let listener = TcpListener::bind(bind_address).await?;
     info!(%bind_address, "stage dashboard listening");
@@ -310,6 +318,61 @@ pub async fn run(config: StageConfig) -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())
+}
+
+/// Poll Twilio for inbound messages and feed new ones into the same submission
+/// path as the browser form. The first successful fetch only *baselines* the
+/// existing backlog (so texts sent before the demo started are ignored); after
+/// that, each newly seen `MessageSid` becomes one confession exactly once.
+async fn run_twilio_poller(app: StageApp, config: TwilioPollConfig) {
+    let client = match TwilioClient::from_config(&config) {
+        Ok(client) => client,
+        Err(error) => {
+            warn!(%error, "Twilio poller disabled: could not build client");
+            return;
+        }
+    };
+    info!(
+        number = %config.number,
+        interval_secs = config.poll_interval.as_secs(),
+        "Twilio message polling enabled"
+    );
+
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut baselined = false;
+
+    loop {
+        match client.fetch_inbound().await {
+            Ok(messages) => {
+                for message in messages {
+                    // `insert` returns false when the sid was already handled.
+                    if !seen.insert(message.sid.clone()) {
+                        continue;
+                    }
+                    // First pass records the pre-demo backlog without submitting it.
+                    if !baselined {
+                        continue;
+                    }
+                    // STOP/START/HELP are carrier-compliance commands, not confessions.
+                    if compliance_keyword(&message.body).is_some() {
+                        continue;
+                    }
+                    if let Err(error) = app
+                        .submit_text(
+                            message.body.clone(),
+                            Some(format!("twilio-{}", message.sid)),
+                        )
+                        .await
+                    {
+                        warn!(reason = %error.1, "could not submit polled Twilio confession");
+                    }
+                }
+                baselined = true;
+            }
+            Err(error) => warn!(%error, "Twilio poll failed; will retry next interval"),
+        }
+        sleep(config.poll_interval).await;
+    }
 }
 
 async fn health() -> StatusCode {
@@ -1011,6 +1074,7 @@ mod tests {
                 auth_token: auth_token.into(),
                 webhook_url: public_url.into(),
             }),
+            twilio_poll: None,
             temporal: TemporalConfig {
                 task_queue: "test".into(),
             },

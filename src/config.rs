@@ -52,6 +52,10 @@ pub struct StageConfig {
     pub max_submissions_per_session: usize,
     pub show_raw_confessions: bool,
     pub twilio: Option<TwilioInboundConfig>,
+    /// Outbound-only polling of Twilio's REST API. An alternative to the inbound
+    /// webhook for hosts that cannot expose a public URL (e.g. a locked-down
+    /// laptop): the app pulls new messages instead of Twilio pushing them.
+    pub twilio_poll: Option<TwilioPollConfig>,
     pub temporal: TemporalConfig,
     /// Operator-supplied words blanked on the stage projection. Sourced from
     /// `MASK_WORDS`; kept out of the repository so no word list is bundled.
@@ -68,9 +72,13 @@ pub struct TwilioInboundConfig {
 impl StageConfig {
     pub fn from_env() -> Result<Self> {
         let twilio = TwilioInboundConfig::from_env()?;
+        let twilio_poll = TwilioPollConfig::from_env()?;
         let show_raw_confessions = env_parse("SHOW_RAW_CONFESSIONS", false)?;
         let allow_unmoderated_twilio = env_parse("ALLOW_UNMODERATED_TWILIO", false)?;
-        if twilio.is_some() && show_raw_confessions && !allow_unmoderated_twilio {
+        if (twilio.is_some() || twilio_poll.is_some())
+            && show_raw_confessions
+            && !allow_unmoderated_twilio
+        {
             bail!(
                 "SHOW_RAW_CONFESSIONS with Twilio requires explicit ALLOW_UNMODERATED_TWILIO=true"
             );
@@ -86,6 +94,7 @@ impl StageConfig {
             max_submissions_per_session: env_parse("MAX_SUBMISSIONS_PER_SESSION", 20usize)?,
             show_raw_confessions,
             twilio,
+            twilio_poll,
             temporal: TemporalConfig::from_env(),
             mask_words: parse_mask_words(&env_string("MASK_WORDS", "")),
         })
@@ -105,29 +114,76 @@ fn parse_mask_words(raw: &str) -> Vec<String> {
 }
 
 impl TwilioInboundConfig {
+    /// The inbound webhook is keyed on `TWILIO_WEBHOOK_URL`: it activates only
+    /// when that URL is present. `TWILIO_ACCOUNT_SID` alone no longer implies
+    /// webhook mode, because the API poller reuses it without a public URL.
     fn from_env() -> Result<Option<Self>> {
-        let account_sid = nonempty_env("TWILIO_ACCOUNT_SID");
-        let auth_token = nonempty_env("TWILIO_AUTH_TOKEN");
-        let webhook_url = nonempty_env("TWILIO_WEBHOOK_URL");
+        let Some(webhook_url) = nonempty_env("TWILIO_WEBHOOK_URL") else {
+            return Ok(None);
+        };
+        let account_sid = nonempty_env("TWILIO_ACCOUNT_SID")
+            .context("TWILIO_WEBHOOK_URL requires TWILIO_ACCOUNT_SID")?;
+        let auth_token = nonempty_env("TWILIO_AUTH_TOKEN")
+            .context("TWILIO_WEBHOOK_URL requires TWILIO_AUTH_TOKEN")?;
 
-        match (account_sid, auth_token, webhook_url) {
-            (None, None, None) => Ok(None),
-            (Some(account_sid), Some(auth_token), Some(webhook_url)) => {
-                let parsed = url::Url::parse(&webhook_url)
-                    .context("TWILIO_WEBHOOK_URL must be an absolute public URL")?;
-                if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
-                    bail!("TWILIO_WEBHOOK_URL must be an absolute HTTP(S) URL");
-                }
-                Ok(Some(Self {
-                    account_sid,
-                    auth_token,
-                    webhook_url,
-                }))
-            }
-            _ => bail!(
-                "TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_WEBHOOK_URL must be set together"
-            ),
+        let parsed = url::Url::parse(&webhook_url)
+            .context("TWILIO_WEBHOOK_URL must be an absolute public URL")?;
+        if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+            bail!("TWILIO_WEBHOOK_URL must be an absolute HTTP(S) URL");
         }
+        Ok(Some(Self {
+            account_sid,
+            auth_token,
+            webhook_url,
+        }))
+    }
+}
+
+/// Credentials and cadence for polling Twilio's REST API for inbound messages.
+#[derive(Clone)]
+pub struct TwilioPollConfig {
+    pub account_sid: String,
+    /// HTTP basic-auth username: an API key SID (`SK…`) when available, else the
+    /// account SID paired with the auth token.
+    pub auth_username: String,
+    pub auth_password: String,
+    /// The Twilio number to watch, in E.164; polled as the `To` of inbound texts.
+    pub number: String,
+    pub poll_interval: Duration,
+}
+
+impl TwilioPollConfig {
+    /// Polling activates when `TWILIO_NUMBER` is set. Credentials prefer an API
+    /// key (`TWILIO_API_KEY_SID` + `TWILIO_API_KEY_SECRET`) and fall back to
+    /// `TWILIO_AUTH_TOKEN`, matching Twilio's own recommendation to avoid the
+    /// account auth token where possible.
+    fn from_env() -> Result<Option<Self>> {
+        let Some(number) = nonempty_env("TWILIO_NUMBER") else {
+            return Ok(None);
+        };
+        let account_sid = nonempty_env("TWILIO_ACCOUNT_SID")
+            .context("TWILIO_NUMBER requires TWILIO_ACCOUNT_SID for API polling")?;
+
+        let (auth_username, auth_password) = match (
+            nonempty_env("TWILIO_API_KEY_SID"),
+            nonempty_env("TWILIO_API_KEY_SECRET"),
+            nonempty_env("TWILIO_AUTH_TOKEN"),
+        ) {
+            (Some(key_sid), Some(key_secret), _) => (key_sid, key_secret),
+            (_, _, Some(auth_token)) => (account_sid.clone(), auth_token),
+            _ => bail!(
+                "Twilio polling needs TWILIO_API_KEY_SID + TWILIO_API_KEY_SECRET (preferred) or TWILIO_AUTH_TOKEN"
+            ),
+        };
+
+        let poll_seconds: u64 = env_parse("TWILIO_POLL_SECONDS", 4u64)?;
+        Ok(Some(Self {
+            account_sid,
+            auth_username,
+            auth_password,
+            number,
+            poll_interval: Duration::from_secs(poll_seconds.max(1)),
+        }))
     }
 }
 
