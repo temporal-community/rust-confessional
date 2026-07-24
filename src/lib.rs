@@ -6,6 +6,7 @@ pub mod moderation;
 pub mod stage;
 pub mod temporal;
 pub(crate) mod twilio;
+pub(crate) mod twilio_poll;
 pub mod workflows;
 
 pub const WORKFLOW_ID_PREFIX: &str = "rust-confession";

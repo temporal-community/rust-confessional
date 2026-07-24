@@ -26,7 +26,8 @@ Temporal installed on the host.
   delivery
 - A deterministic fixture model for rehearsals and offline stage use
 - An optional OpenAI Responses API backend with structured JSON output
-- An optional signed Twilio inbound-message webhook
+- Optional Twilio inbound messages, by signed webhook or by outbound-only API
+  polling for hosts that cannot expose a public URL
 - A safe-by-default stage feed using the agent's display paraphrase, plus an
   explicit trusted-input switch for showing incoming text immediately
 - A deliberate `Reply Pending` checkpoint and durable `release` Signal
@@ -38,9 +39,10 @@ Temporal installed on the host.
 - Persistent Docker volumes for Temporal history and the dashboard projection
 - Three score-based “Hall of Shame” awards, selected only from `Sent` rows
 
-Audience input can come from the local browser form or the optional Twilio
-webhook. Twilio support is inbound-only: the demo delivery Activity reports back
-to the stage and does not send an SMS reply.
+Audience input can come from the local browser form or from Twilio (either a
+signed inbound webhook or outbound-only API polling). Twilio support is
+inbound-only: the demo delivery Activity reports back to the stage and does not
+send an SMS reply.
 
 ## Quick start
 
@@ -248,6 +250,57 @@ messages are acknowledged without starting Workflows.
 
 The response is empty TwiML. There is no outbound Twilio API call and no SMS
 judgment; results appear on the stage dashboard. An unsigned request is rejected.
+
+### Inbound via API polling (no public URL)
+
+When the host cannot expose a public webhook — a locked-down or work laptop, or
+any network where inbound HTTP is not an option — Stage can instead **poll**
+Twilio's REST API for inbound messages. The process only ever makes outbound
+HTTPS calls to `api.twilio.com`; nothing listens for Twilio, so there is no
+tunnel and none of the whole-service exposure the webhook note above warns
+about.
+
+Polling activates when `TWILIO_NUMBER` is set. Credentials prefer an API key
+(Console → Account → API keys & tokens), falling back to the account auth token:
+
+```sh
+export TWILIO_ACCOUNT_SID="AC..."
+export TWILIO_API_KEY_SID="SK..."
+read -rsp "Twilio API key secret: " TWILIO_API_KEY_SECRET; export TWILIO_API_KEY_SECRET; echo
+export TWILIO_NUMBER="+15551234567"   # E.164
+export TWILIO_POLL_SECONDS=4          # optional, default 4
+docker compose up -d --force-recreate stage
+```
+
+Leave `TWILIO_WEBHOOK_URL` unset — setting it activates webhook mode instead.
+The poller baselines the existing message backlog on its first successful fetch
+(so texts sent before startup are ignored), deduplicates by `MessageSid`, skips
+STOP/START/HELP-family commands, and feeds each new message into the same
+submission path as the browser form. This is inbound-only and needs no A2P
+registration; the tradeoff is up to `TWILIO_POLL_SECONDS` of latency between a
+text being sent and appearing on the dashboard.
+
+### Confession QR code
+
+The dashboard shows a QR that encodes `sms:<number>` — scanning it opens the
+audience member's Messages app addressed to the demo number, with a 🦀 in the
+centre. The committed `static/confess-qr.svg` uses a **placeholder number on
+purpose**: a real number in a public repo attracts spam and per-message charges
+(inbound SMS bills you even when the demo is not running) and cannot be removed
+from git history. Regenerate it with your own number for a live event, and keep
+that copy local:
+
+```sh
+pip install segno
+python tools/gen_qr.py "+15551234567"        # your Twilio number, E.164
+git update-index --skip-worktree static/confess-qr.svg   # never commit the real one
+```
+
+`--skip-worktree` tells git to ignore your local edit so the placeholder stays
+in the repo. To restore normal tracking (e.g. to update the placeholder), run
+`git update-index --no-skip-worktree static/confess-qr.svg`. For a live talk,
+put the human-readable number on your slides rather than in the dashboard, which
+is why the on-screen caption intentionally omits it.
 
 ## Failure modes to demo
 
