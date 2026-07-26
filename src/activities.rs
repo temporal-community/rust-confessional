@@ -28,6 +28,8 @@ pub struct ComposeInput {
     pub submission: SubmissionInput,
     pub plan: AgentPlan,
     pub remedy: Option<Remedy>,
+    #[serde(default)]
+    pub findings: Vec<Finding>,
 }
 
 /// What the autonomous loop needs to reconstruct an `AgentLoopView` inside the
@@ -130,7 +132,12 @@ impl ConfessionalActivities {
             )));
         }
         self.backend
-            .compose(&input.submission, &input.plan, input.remedy.as_ref())
+            .compose(
+                &input.submission,
+                &input.plan,
+                input.remedy.as_ref(),
+                &input.findings,
+            )
             .await
             .map_err(model_error)
     }

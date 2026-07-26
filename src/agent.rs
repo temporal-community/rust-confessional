@@ -51,6 +51,7 @@ pub trait AgentBackend: Send + Sync {
         submission: &SubmissionInput,
         plan: &AgentPlan,
         remedy: Option<&Remedy>,
+        findings: &[Finding],
     ) -> Result<Judgment, ModelError>;
 
     /// Choose the next step of the autonomous loop. The default is a minimal
@@ -253,12 +254,14 @@ impl AgentBackend for OpenAiBackend {
         submission: &SubmissionInput,
         plan: &AgentPlan,
         remedy: Option<&Remedy>,
+        findings: &[Finding],
     ) -> Result<Judgment, ModelError> {
         let input = serde_json::to_string(&json!({
             "task": "Write the final Rust Confessional judgment.",
             "confession": submission.text,
             "plan": plan,
             "approved_remedy": remedy,
+            "findings": findings,
         }))
         .expect("JSON values always serialize");
 
@@ -316,6 +319,7 @@ impl AgentBackend for FixtureBackend {
         submission: &SubmissionInput,
         plan: &AgentPlan,
         remedy: Option<&Remedy>,
+        findings: &[Finding],
     ) -> Result<Judgment, ModelError> {
         sleep(Duration::from_millis(800)).await;
         let remedy = remedy.cloned().unwrap_or_else(|| remedy_for(plan.category));
@@ -339,14 +343,50 @@ impl AgentBackend for FixtureBackend {
             44
         };
 
+        // Fold the loop's accumulated findings in deterministically so a revise
+        // (findings present) observably differs from the first compose (none yet),
+        // while every field stays within its cap and `validate()` keeps passing.
+        let mut prescription = remedy.guidance;
+        let mut suggested_tools = remedy.suggested_tools;
+        let mut sentence = fixture_sentence(plan.category).to_owned();
+        for finding in findings {
+            match finding.skill {
+                Skill::SelfCritique => {
+                    sentence = sanitize_stage_text(
+                        &format!("{sentence} (revised: {})", finding.summary),
+                        280,
+                    );
+                }
+                Skill::DocLookup => {
+                    prescription = sanitize_stage_text(
+                        &format!("{prescription} Docs: {}", finding.summary),
+                        280,
+                    );
+                }
+                Skill::RemedyLookup => {
+                    if let Some(tool) = finding
+                        .detail
+                        .split(", ")
+                        .find(|tool| !tool.is_empty() && tool.chars().count() <= 64)
+                    {
+                        if suggested_tools.len() < 5
+                            && !suggested_tools.iter().any(|existing| existing == tool)
+                        {
+                            suggested_tools.push(tool.to_owned());
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(Judgment {
             display_confession: fixture_display_confession(&submission.text, plan.category),
             category: plan.category,
             judgment: fixture_judgment(plan.category).to_owned(),
             severity,
-            prescription: remedy.guidance,
-            suggested_tools: remedy.suggested_tools,
-            sentence: fixture_sentence(plan.category).to_owned(),
+            prescription,
+            suggested_tools,
+            sentence,
             penance: penance.to_owned(),
             penance_line: penance_line.to_owned(),
             award_scores: AwardScores {
@@ -744,11 +784,37 @@ mod tests {
         let plan = backend.plan(&input).await.unwrap();
         assert_eq!(plan.category, Category::Concurrency);
         let judgment = backend
-            .compose(&input, &plan, Some(&remedy_for(plan.category)))
+            .compose(&input, &plan, Some(&remedy_for(plan.category)), &[])
             .await
             .unwrap();
         judgment.validate().unwrap();
         assert_eq!(judgment.judgment, "Concurrency by astrology.");
+    }
+
+    #[tokio::test]
+    async fn revise_with_findings_changes_the_draft() {
+        // Proves the Stage B fix: threading findings into compose makes a revise
+        // (findings present) produce a different Judgment than the first compose.
+        let backend = FixtureBackend;
+        let input = submission("I used unsafe because I was tired.");
+        let plan = backend.plan(&input).await.unwrap();
+
+        let first = backend.compose(&input, &plan, None, &[]).await.unwrap();
+        first.validate().unwrap();
+
+        let critique = Finding {
+            skill: Skill::SelfCritique,
+            summary: "Self-critique: name the invariant before shipping.".to_owned(),
+            detail: String::new(),
+        };
+        let revised = backend
+            .compose(&input, &plan, None, std::slice::from_ref(&critique))
+            .await
+            .unwrap();
+        revised.validate().unwrap();
+
+        assert_ne!(first.sentence, revised.sentence);
+        assert_ne!(first, revised);
     }
 
     #[tokio::test]
@@ -807,7 +873,7 @@ mod tests {
                         });
                     draft = Some(
                         backend
-                            .compose(&input, &plan, remedy.as_ref())
+                            .compose(&input, &plan, remedy.as_ref(), &findings)
                             .await
                             .unwrap(),
                     );
@@ -821,6 +887,78 @@ mod tests {
 
         assert!(finished, "loop must reach Finish within the cap");
         assert!(steps_taken <= MAX_AGENT_STEPS, "loop must respect the cap");
+        let judgment = draft.expect("loop must produce a draft judgment");
+        judgment.validate().unwrap();
+    }
+
+    #[tokio::test]
+    async fn aggregate_autonomous_loop_terminates_within_the_session_cap() {
+        // Mirrors the aggregate SessionWorkflow's tighter cap: prove the fixture
+        // loop yields a valid Judgment without exceeding MAX_SESSION_AGENT_STEPS.
+        const MAX_SESSION_AGENT_STEPS: u8 = 4;
+        let backend = FixtureBackend;
+        let input = submission("Our production database is a CSV file.");
+        let plan = backend.plan(&input).await.unwrap();
+
+        let mut findings: Vec<Finding> = Vec::new();
+        let mut draft: Option<Judgment> = None;
+        let mut steps_taken = 0u8;
+
+        for iteration in 0..MAX_SESSION_AGENT_STEPS {
+            steps_taken = iteration + 1;
+            let step = {
+                let view = AgentLoopView {
+                    text: &input.text,
+                    category: plan.category,
+                    findings: &findings,
+                    has_draft: draft.is_some(),
+                    iteration,
+                };
+                backend.decide_next_step(&view).await.unwrap()
+            };
+
+            match step {
+                AgentStep::Lookup { skill, .. } => {
+                    let finding = {
+                        let view = AgentLoopView {
+                            text: &input.text,
+                            category: plan.category,
+                            findings: &findings,
+                            has_draft: draft.is_some(),
+                            iteration,
+                        };
+                        backend.run_skill(skill, &view).await.unwrap()
+                    };
+                    findings.push(finding);
+                }
+                AgentStep::Compose | AgentStep::Revise { .. } => {
+                    let remedy = findings
+                        .iter()
+                        .find(|finding| finding.skill == Skill::RemedyLookup)
+                        .map(|finding| Remedy {
+                            category: plan.category,
+                            guidance: finding.summary.clone(),
+                            suggested_tools: finding
+                                .detail
+                                .split(", ")
+                                .map(ToOwned::to_owned)
+                                .collect(),
+                        });
+                    draft = Some(
+                        backend
+                            .compose(&input, &plan, remedy.as_ref(), &findings)
+                            .await
+                            .unwrap(),
+                    );
+                }
+                AgentStep::Finish => break,
+            }
+        }
+
+        assert!(
+            steps_taken <= MAX_SESSION_AGENT_STEPS,
+            "loop must respect the tighter aggregate cap"
+        );
         let judgment = draft.expect("loop must produce a draft judgment");
         judgment.validate().unwrap();
     }

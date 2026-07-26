@@ -76,6 +76,7 @@ impl StageApp {
             .route("/webhooks/twilio/messages", post(twilio_message))
             .route("/api/demo/hold", post(set_hold))
             .route("/api/demo/mode", post(set_workflow_mode))
+            .route("/api/demo/agent-mode", post(set_agent_mode))
             .route("/api/demo/seed", post(seed_confessions))
             .route("/api/demo/reset", post(reset_demo))
             .route("/api/internal/update", post(internal_update))
@@ -122,6 +123,9 @@ impl StageApp {
 
         let (session_id, held) = self.store.session_and_hold().await;
         let mode = self.store.mode().await;
+        // Each confession captures the currently selected agent mode; linear and
+        // autonomous confessions coexist in one session (no reset on change).
+        let agent_mode = self.store.agent_mode().await;
         let id = requested_id.unwrap_or_else(|| Ulid::new().to_string());
         validate_submission_id(&id)?;
         let mut input = SubmissionInput {
@@ -130,7 +134,7 @@ impl StageApp {
             text,
             created_at: Utc::now(),
             hold_before_reply: held,
-            agent_mode: AgentMode::default(),
+            agent_mode,
         };
         let workflow_id = match mode {
             WorkflowMode::PerConfession => temporal::workflow_id(&input.session_id, &input.id),
@@ -397,6 +401,7 @@ async fn get_state(State(app): State<StageApp>) -> Json<PublicStageState> {
         held: stored.held,
         show_raw_confessions: app.config.show_raw_confessions,
         workflow_mode: stored.workflow_mode,
+        agent_mode: stored.agent_mode,
         submissions: stored.submissions,
         awards,
     })
@@ -551,6 +556,26 @@ async fn set_workflow_mode(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(Debug, Deserialize)]
+struct AgentModeRequest {
+    agent_mode: AgentMode,
+}
+
+async fn set_agent_mode(
+    State(app): State<StageApp>,
+    Json(request): Json<AgentModeRequest>,
+) -> Result<StatusCode, ApiError> {
+    // Unlike the per/aggregate workflow mode, the agent mode does not reset the
+    // session: each confession carries its own `agent_mode`, so linear and
+    // autonomous confessions can coexist in one running session.
+    let _admission = app.admission.lock().await;
+    app.store
+        .set_agent_mode(request.agent_mode)
+        .await
+        .map_err(ApiError::internal)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn reset_demo(State(app): State<StageApp>) -> Result<StatusCode, ApiError> {
     let _admission = app.admission.lock().await;
     app.release_current().await?;
@@ -673,6 +698,8 @@ struct StoredStageState {
     held: bool,
     #[serde(default)]
     workflow_mode: WorkflowMode,
+    #[serde(default)]
+    agent_mode: AgentMode,
     submissions: Vec<StageSubmission>,
 }
 
@@ -682,6 +709,7 @@ impl Default for StoredStageState {
             session_id: Ulid::new().to_string(),
             held: true,
             workflow_mode: WorkflowMode::default(),
+            agent_mode: AgentMode::default(),
             submissions: Vec::new(),
         }
     }
@@ -722,6 +750,10 @@ impl StageStore {
         self.state.read().await.workflow_mode
     }
 
+    async fn agent_mode(&self) -> AgentMode {
+        self.state.read().await.agent_mode
+    }
+
     async fn session_id(&self) -> String {
         self.state.read().await.session_id.clone()
     }
@@ -729,6 +761,12 @@ impl StageStore {
     async fn set_mode(&self, mode: WorkflowMode) -> anyhow::Result<()> {
         let _guard = self.persistence.lock().await;
         self.state.write().await.workflow_mode = mode;
+        self.persist_locked().await
+    }
+
+    async fn set_agent_mode(&self, agent_mode: AgentMode) -> anyhow::Result<()> {
+        let _guard = self.persistence.lock().await;
+        self.state.write().await.agent_mode = agent_mode;
         self.persist_locked().await
     }
 

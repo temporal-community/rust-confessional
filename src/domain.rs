@@ -314,6 +314,10 @@ pub struct SessionConfession {
     /// Per-confession release flag, mirroring `ConfessionWorkflow`: it starts as
     /// `!hold_before_reply` and the release Signal frees the held ones.
     pub released: bool,
+    #[serde(default)]
+    pub findings: Vec<Finding>,
+    #[serde(default)]
+    pub steps: Vec<AgentStep>,
 }
 
 /// The aggregate `SessionWorkflow`'s durable state, returned by its query. This
@@ -355,6 +359,7 @@ pub struct PublicStageState {
     pub held: bool,
     pub show_raw_confessions: bool,
     pub workflow_mode: WorkflowMode,
+    pub agent_mode: AgentMode,
     pub submissions: Vec<StageSubmission>,
     pub awards: Awards,
 }

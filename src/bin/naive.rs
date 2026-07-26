@@ -34,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
     );
     let remedy = remedy_for(plan.category);
     println!("COMPOSING      Ferris is sharpening the judgment");
-    let judgment = backend.compose(&input, &plan, Some(&remedy)).await?;
+    let judgment = backend.compose(&input, &plan, Some(&remedy), &[]).await?;
 
     let pending_in_memory = [judgment];
     println!("REPLY PENDING  memory only — kill this container now");

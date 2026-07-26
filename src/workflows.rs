@@ -23,6 +23,12 @@ use crate::{
 /// always terminates even if a backend never returns `Finish`.
 const MAX_AGENT_STEPS: u8 = 6;
 
+/// Tighter cap for the aggregate autonomous path: every session confession's
+/// loop folds its Activities into one shared Workflow history, so a deep loop
+/// per confession would bloat that single history. Trade loop depth for a
+/// compact, replay-friendly aggregate.
+const MAX_SESSION_AGENT_STEPS: u8 = 4;
+
 #[workflow]
 pub struct ConfessionWorkflow {
     submission: SubmissionInput,
@@ -183,6 +189,8 @@ async fn run_linear(
                 submission: submission.clone(),
                 plan,
                 remedy,
+                // The linear path composes once with no accumulated findings.
+                findings: Vec::new(),
             },
             activity_options(20, 75, 3),
         )
@@ -274,8 +282,13 @@ async fn run_autonomous(
                 ctx.state_mut(|state| state.findings.push(finding));
             }
             AgentStep::Compose | AgentStep::Revise { .. } => {
-                let remedy = ctx.state(|state| first_remedy(&state.findings, plan.category));
-                let judgment = compose_draft(ctx, submission, &plan, remedy).await?;
+                let (remedy, findings) = ctx.state(|state| {
+                    (
+                        first_remedy(&state.findings, plan.category),
+                        state.findings.clone(),
+                    )
+                });
+                let judgment = compose_draft(ctx, submission, &plan, remedy, findings).await?;
                 ctx.state_mut(|state| state.judgment = Some(judgment));
             }
             AgentStep::Finish => break,
@@ -287,8 +300,13 @@ async fn run_autonomous(
     if let Some(judgment) = ctx.state(|state| state.judgment.clone()) {
         return Ok(judgment);
     }
-    let remedy = ctx.state(|state| first_remedy(&state.findings, plan.category));
-    let judgment = compose_draft(ctx, submission, &plan, remedy).await?;
+    let (remedy, findings) = ctx.state(|state| {
+        (
+            first_remedy(&state.findings, plan.category),
+            state.findings.clone(),
+        )
+    });
+    let judgment = compose_draft(ctx, submission, &plan, remedy, findings).await?;
     ctx.state_mut(|state| state.judgment = Some(judgment.clone()));
     Ok(judgment)
 }
@@ -300,6 +318,7 @@ async fn compose_draft(
     submission: &SubmissionInput,
     plan: &AgentPlan,
     remedy: Option<Remedy>,
+    findings: Vec<Finding>,
 ) -> WorkflowResult<Judgment> {
     set_status(ctx, SubmissionStatus::Composing);
     report(ctx, submission, SubmissionStatus::Composing, None).await;
@@ -310,6 +329,7 @@ async fn compose_draft(
                 submission: submission.clone(),
                 plan: plan.clone(),
                 remedy,
+                findings,
             },
             activity_options(20, 75, 3),
         )
@@ -405,6 +425,8 @@ impl SessionWorkflow {
             plan: None,
             judgment: None,
             released,
+            findings: Vec::new(),
+            steps: Vec::new(),
         });
     }
 
@@ -464,11 +486,25 @@ fn find_submission(
 
 /// Judge, research, and compose one confession, parking it at `ReplyPending`.
 /// Delivery is intentionally not gated here so the whole board can fill with held
-/// judgments before any release.
+/// judgments before any release. Each confession carries its own `agent_mode`, so
+/// linear and autonomous confessions can coexist in one session.
 async fn compose_confession(ctx: &mut WorkflowContext<SessionWorkflow>, id: String) {
     let Some(submission) = find_submission(ctx, &id) else {
         return;
     };
+    match submission.agent_mode {
+        AgentMode::Linear => compose_confession_linear(ctx, id, submission).await,
+        AgentMode::Autonomous => compose_confession_autonomous(ctx, id, submission).await,
+    }
+}
+
+/// The aggregate mirror of `run_linear`: the original fixed pipeline for one
+/// confession inside the session's shared state.
+async fn compose_confession_linear(
+    ctx: &mut WorkflowContext<SessionWorkflow>,
+    id: String,
+    submission: SubmissionInput,
+) {
     set_item(ctx, &submission, SubmissionStatus::Judging, None).await;
     let plan = match ctx
         .start_activity(
@@ -508,6 +544,8 @@ async fn compose_confession(ctx: &mut WorkflowContext<SessionWorkflow>, id: Stri
                 submission: submission.clone(),
                 plan,
                 remedy,
+                // The linear path composes once with no accumulated findings.
+                findings: Vec::new(),
             },
             activity_options(20, 75, 3),
         )
@@ -527,6 +565,153 @@ async fn compose_confession(ctx: &mut WorkflowContext<SessionWorkflow>, id: Stri
         Some(judgment),
     )
     .await;
+}
+
+/// The aggregate mirror of `run_autonomous`: plan once, then loop up to the
+/// tighter session cap, letting the backend decide each step, updating the one
+/// confession via the shared `update_item` helper. Structurally identical to
+/// `run_autonomous`; the parallel body exists only because the two Workflow
+/// contexts differ (fighting generics over the SDK macros is not worth it).
+async fn compose_confession_autonomous(
+    ctx: &mut WorkflowContext<SessionWorkflow>,
+    id: String,
+    submission: SubmissionInput,
+) {
+    set_item(ctx, &submission, SubmissionStatus::Judging, None).await;
+    let plan = match ctx
+        .start_activity(
+            ConfessionalActivities::plan,
+            submission.clone(),
+            activity_options(20, 75, 3),
+        )
+        .await
+    {
+        Ok(plan) => plan,
+        Err(_) => return fail_item(ctx, &submission).await,
+    };
+    update_item(ctx, &id, |item| item.plan = Some(plan.clone()));
+
+    for iteration in 0..MAX_SESSION_AGENT_STEPS {
+        let (findings, has_draft) = ctx.state(|state| {
+            confession(state, &id)
+                .map(|item| (item.findings.clone(), item.judgment.is_some()))
+                .unwrap_or_default()
+        });
+        let step = match ctx
+            .start_activity(
+                ConfessionalActivities::decide_next_step,
+                DecideInput {
+                    text: submission.text.clone(),
+                    category: plan.category,
+                    findings: findings.clone(),
+                    has_draft,
+                    iteration,
+                },
+                activity_options(20, 75, 3),
+            )
+            .await
+        {
+            Ok(step) => step,
+            Err(_) => return fail_item(ctx, &submission).await,
+        };
+        update_item(ctx, &id, |item| item.steps.push(step.clone()));
+
+        match step {
+            AgentStep::Lookup { skill, .. } => {
+                set_item(ctx, &submission, SubmissionStatus::Researching, None).await;
+                let finding = match ctx
+                    .start_activity(
+                        ConfessionalActivities::run_skill,
+                        SkillInput {
+                            skill,
+                            text: submission.text.clone(),
+                            category: plan.category,
+                            findings,
+                            has_draft,
+                            iteration,
+                        },
+                        activity_options(20, 75, 3),
+                    )
+                    .await
+                {
+                    Ok(finding) => finding,
+                    Err(_) => return fail_item(ctx, &submission).await,
+                };
+                update_item(ctx, &id, |item| item.findings.push(finding));
+            }
+            AgentStep::Compose | AgentStep::Revise { .. } => {
+                if !compose_session_draft(ctx, &id, &submission, &plan).await {
+                    return;
+                }
+            }
+            AgentStep::Finish => break,
+        }
+    }
+
+    // The loop can hit the cap (or finish) before ever composing; guarantee a
+    // Judgment so the delivery tail always has a draft, mirroring run_autonomous.
+    let has_draft =
+        ctx.state(|state| confession(state, &id).is_some_and(|item| item.judgment.is_some()));
+    if !has_draft && !compose_session_draft(ctx, &id, &submission, &plan).await {
+        return;
+    }
+
+    let judgment = ctx.state(|state| confession(state, &id).and_then(|item| item.judgment.clone()));
+    update_item(ctx, &id, |item| {
+        item.status = SubmissionStatus::ReplyPending
+    });
+    report_session(ctx, &submission, SubmissionStatus::ReplyPending, judgment).await;
+}
+
+/// Run the `compose` Activity for one session confession, folding in the remedy
+/// and findings gathered so far and storing the draft. Returns `false` (after
+/// failing the item) on error, matching `compose_draft`'s failure handling.
+async fn compose_session_draft(
+    ctx: &mut WorkflowContext<SessionWorkflow>,
+    id: &str,
+    submission: &SubmissionInput,
+    plan: &AgentPlan,
+) -> bool {
+    let (remedy, findings) = ctx.state(|state| {
+        confession(state, id)
+            .map(|item| {
+                (
+                    first_remedy(&item.findings, plan.category),
+                    item.findings.clone(),
+                )
+            })
+            .unwrap_or_default()
+    });
+    set_item(ctx, submission, SubmissionStatus::Composing, None).await;
+    match ctx
+        .start_activity(
+            ConfessionalActivities::compose,
+            ComposeInput {
+                submission: submission.clone(),
+                plan: plan.clone(),
+                remedy,
+                findings,
+            },
+            activity_options(20, 75, 3),
+        )
+        .await
+    {
+        Ok(judgment) => {
+            update_item(ctx, id, |item| item.judgment = Some(judgment));
+            true
+        }
+        Err(_) => {
+            fail_item(ctx, submission).await;
+            false
+        }
+    }
+}
+
+fn confession<'a>(state: &'a SessionWorkflow, id: &str) -> Option<&'a SessionConfession> {
+    state
+        .confessions
+        .iter()
+        .find(|item| item.submission.id == id)
 }
 
 /// Deliver one released confession, moving it from `ReplyPending` to `Sent`.
