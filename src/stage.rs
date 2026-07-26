@@ -829,6 +829,11 @@ impl StageStore {
         {
             submission.status = update.status;
             submission.error = update.error;
+            // Replace the trace only with the latest non-empty list, so the plain
+            // (empty) reports of the delivery tail never clear a built-up trace.
+            if !update.agent_steps.is_empty() {
+                submission.agent_steps = update.agent_steps;
+            }
             if let Some(judgment) = update.judgment {
                 if replace_with_safe_display {
                     submission.text = judgment.display_confession;

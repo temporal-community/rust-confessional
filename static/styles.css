@@ -897,6 +897,36 @@ main {
   }
 }
 
+.agent-trace {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.trace-steps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin: 9px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+}
+
+.trace-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trace-steps li:not(:first-child)::before {
+  content: "›";
+  color: var(--line-strong);
+}
+
 .category-tag {
   display: inline-flex;
   justify-self: start;

@@ -12,9 +12,11 @@ const elements = {
   temporalStatus: document.querySelector("#temporal-status"),
   modelMode: document.querySelector("#model-mode"),
   workflowMode: document.querySelector("#workflow-mode"),
+  agentMode: document.querySelector("#agent-mode"),
   holdStatus: document.querySelector("#hold-status"),
   holdToggle: document.querySelector("#hold-toggle"),
   modeToggle: document.querySelector("#mode-toggle"),
+  agentModeToggle: document.querySelector("#agent-mode-toggle"),
   seedButton: document.querySelector("#seed-button"),
   resetButton: document.querySelector("#reset-button"),
   demoRetry: document.querySelector("#demo-retry-button"),
@@ -172,6 +174,10 @@ function renderSystem(state) {
   setText(elements.workflowMode, `Workflow: ${aggregate ? "Aggregate" : "Per confession"}`);
   if (!elements.modeToggle.disabled) elements.modeToggle.checked = aggregate;
 
+  const autonomous = state.agent_mode === "autonomous";
+  setText(elements.agentMode, `Agent: ${autonomous ? "Autonomous" : "Linear"}`);
+  if (!elements.agentModeToggle.disabled) elements.agentModeToggle.checked = autonomous;
+
   elements.holdStatus.classList.toggle("is-hidden", !state.held);
 
   if (!elements.holdToggle.disabled) elements.holdToggle.checked = Boolean(state.held);
@@ -262,6 +268,29 @@ function submissionCard(submission, isNew) {
     appendResultRow(result, "Sentence", submission.sentence);
     appendResultRow(result, "Error", submission.error, "error");
     item.append(result);
+  }
+
+  // Autonomous confessions carry a step trace; linear ones send none, so the
+  // block is skipped and their cards render exactly as before.
+  const steps = Array.isArray(submission.agent_steps) ? submission.agent_steps : [];
+  if (steps.length > 0) {
+    const trace = document.createElement("div");
+    trace.className = "agent-trace";
+
+    const label = document.createElement("span");
+    label.className = "result-label";
+    label.textContent = "Agent trace";
+
+    const crumbs = document.createElement("ol");
+    crumbs.className = "trace-steps";
+    for (const step of steps) {
+      const crumb = document.createElement("li");
+      crumb.textContent = safeText(step);
+      crumbs.append(crumb);
+    }
+
+    trace.append(label, crumbs);
+    item.append(trace);
   }
 
   const penanceText = safeText(submission.penance).trim();
@@ -504,6 +533,31 @@ elements.modeToggle.addEventListener("change", async () => {
     showToast(error.name === "AbortError" ? "The request timed out." : error.message, true);
   } finally {
     elements.modeToggle.disabled = false;
+  }
+});
+
+elements.agentModeToggle.addEventListener("change", async () => {
+  const wantsAutonomous = elements.agentModeToggle.checked;
+  const agentMode = wantsAutonomous ? "autonomous" : "linear";
+  elements.agentModeToggle.disabled = true;
+
+  try {
+    await request("/api/demo/agent-mode", {
+      method: "POST",
+      body: JSON.stringify({ agent_mode: agentMode }),
+    });
+    showToast(
+      wantsAutonomous
+        ? "Autonomous agent mode. New confessions run the loop."
+        : "Linear pipeline mode.",
+    );
+    // Agent mode does not reset the session; each confession keeps its own mode.
+    await pollState();
+  } catch (error) {
+    elements.agentModeToggle.checked = !wantsAutonomous;
+    showToast(error.name === "AbortError" ? "The request timed out." : error.message, true);
+  } finally {
+    elements.agentModeToggle.disabled = false;
   }
 });
 

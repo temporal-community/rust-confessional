@@ -257,7 +257,9 @@ async fn run_autonomous(
         match step {
             AgentStep::Lookup { skill, .. } => {
                 set_status(ctx, SubmissionStatus::Researching);
-                report(ctx, submission, SubmissionStatus::Researching, None).await;
+                let steps = ctx.state(|state| step_labels(&state.steps));
+                report_with_steps(ctx, submission, SubmissionStatus::Researching, None, steps)
+                    .await;
                 let finding = match ctx
                     .start_activity(
                         ConfessionalActivities::run_skill,
@@ -289,7 +291,18 @@ async fn run_autonomous(
                     )
                 });
                 let judgment = compose_draft(ctx, submission, &plan, remedy, findings).await?;
-                ctx.state_mut(|state| state.judgment = Some(judgment));
+                let steps = ctx.state(|state| step_labels(&state.steps));
+                ctx.state_mut(|state| state.judgment = Some(judgment.clone()));
+                // Report the freshly composed/revised draft so the card updates live
+                // across revisions, carrying the running trace of steps so far.
+                report_with_steps(
+                    ctx,
+                    submission,
+                    SubmissionStatus::Composing,
+                    Some(judgment),
+                    steps,
+                )
+                .await;
             }
             AgentStep::Finish => break,
         }
@@ -307,7 +320,16 @@ async fn run_autonomous(
         )
     });
     let judgment = compose_draft(ctx, submission, &plan, remedy, findings).await?;
+    let steps = ctx.state(|state| step_labels(&state.steps));
     ctx.state_mut(|state| state.judgment = Some(judgment.clone()));
+    report_with_steps(
+        ctx,
+        submission,
+        SubmissionStatus::Composing,
+        Some(judgment.clone()),
+        steps,
+    )
+    .await;
     Ok(judgment)
 }
 
@@ -618,7 +640,20 @@ async fn compose_confession_autonomous(
 
         match step {
             AgentStep::Lookup { skill, .. } => {
-                set_item(ctx, &submission, SubmissionStatus::Researching, None).await;
+                update_item(ctx, &id, |item| item.status = SubmissionStatus::Researching);
+                let steps = ctx.state(|state| {
+                    confession(state, &id)
+                        .map(|item| step_labels(&item.steps))
+                        .unwrap_or_default()
+                });
+                report_session_with_steps(
+                    ctx,
+                    &submission,
+                    SubmissionStatus::Researching,
+                    None,
+                    steps,
+                )
+                .await;
                 let finding = match ctx
                     .start_activity(
                         ConfessionalActivities::run_skill,
@@ -643,6 +678,21 @@ async fn compose_confession_autonomous(
                 if !compose_session_draft(ctx, &id, &submission, &plan).await {
                     return;
                 }
+                // Report the freshly composed/revised draft so the card updates
+                // live across revisions, carrying the running trace of steps.
+                let (judgment, steps) = ctx.state(|state| {
+                    confession(state, &id)
+                        .map(|item| (item.judgment.clone(), step_labels(&item.steps)))
+                        .unwrap_or_default()
+                });
+                report_session_with_steps(
+                    ctx,
+                    &submission,
+                    SubmissionStatus::Composing,
+                    judgment,
+                    steps,
+                )
+                .await;
             }
             AgentStep::Finish => break,
         }
@@ -780,10 +830,21 @@ async fn report_session(
     status: SubmissionStatus,
     judgment: Option<Judgment>,
 ) {
+    // Linear paths carry no trace; the autonomous loop uses `report_session_with_steps`.
+    report_session_with_steps(ctx, submission, status, judgment, Vec::new()).await;
+}
+
+async fn report_session_with_steps(
+    ctx: &mut WorkflowContext<SessionWorkflow>,
+    submission: &SubmissionInput,
+    status: SubmissionStatus,
+    judgment: Option<Judgment>,
+    agent_steps: Vec<String>,
+) {
     let _ = ctx
         .start_activity(
             ConfessionalActivities::report_stage,
-            stage_update(submission, status, judgment),
+            stage_update(submission, status, judgment, agent_steps),
             activity_options(5, 12, 2),
         )
         .await;
@@ -809,7 +870,13 @@ fn failure_update(submission: &SubmissionInput) -> crate::domain::StageUpdate {
         status: SubmissionStatus::Failed,
         judgment: None,
         error: Some("Agent step failed; inspect the Worker logs for details.".to_owned()),
+        agent_steps: Vec::new(),
     }
+}
+
+/// Map the loop's decisions to the short labels the dashboard renders as a trace.
+fn step_labels(steps: &[AgentStep]) -> Vec<String> {
+    steps.iter().map(|step| step.label().to_owned()).collect()
 }
 
 fn set_status(ctx: &mut WorkflowContext<ConfessionWorkflow>, status: SubmissionStatus) {
@@ -822,11 +889,22 @@ async fn report(
     status: SubmissionStatus,
     judgment: Option<Judgment>,
 ) {
+    // Linear paths carry no trace; the autonomous loop uses `report_with_steps`.
+    report_with_steps(ctx, submission, status, judgment, Vec::new()).await;
+}
+
+async fn report_with_steps(
+    ctx: &mut WorkflowContext<ConfessionWorkflow>,
+    submission: &SubmissionInput,
+    status: SubmissionStatus,
+    judgment: Option<Judgment>,
+    agent_steps: Vec<String>,
+) {
     // The dashboard is a projection. Its failure must never fail the durable agent.
     let _ = ctx
         .start_activity(
             ConfessionalActivities::report_stage,
-            stage_update(submission, status, judgment),
+            stage_update(submission, status, judgment, agent_steps),
             activity_options(5, 12, 2),
         )
         .await;

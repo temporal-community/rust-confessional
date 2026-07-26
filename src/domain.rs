@@ -70,6 +70,29 @@ pub enum AgentStep {
     Finish,
 }
 
+impl AgentStep {
+    /// A short, human-readable label for the dashboard's autonomous step trace.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Lookup {
+                skill: Skill::RemedyLookup,
+                ..
+            } => "Looked up an approved remedy",
+            Self::Lookup {
+                skill: Skill::DocLookup,
+                ..
+            } => "Consulted the docs",
+            Self::Lookup {
+                skill: Skill::SelfCritique,
+                ..
+            } => "Self-critiqued the draft",
+            Self::Compose => "Composed a draft",
+            Self::Revise { .. } => "Revised the draft",
+            Self::Finish => "Finished",
+        }
+    }
+}
+
 /// A result the agent gathered from running a `Skill`, folded into later steps.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Finding {
@@ -253,6 +276,10 @@ pub struct StageSubmission {
     pub award_scores: Option<AwardScores>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Human-readable trace of the autonomous loop's steps. Empty (and omitted
+    /// from the projection) for linear confessions, so their rows stay identical.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_steps: Vec<String>,
 }
 
 impl StageSubmission {
@@ -276,6 +303,7 @@ impl StageSubmission {
             penance_reps: None,
             award_scores: None,
             error: None,
+            agent_steps: Vec::new(),
         }
     }
 }
@@ -289,6 +317,9 @@ pub struct StageUpdate {
     pub judgment: Option<Judgment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// The running list of autonomous step labels; empty for linear paths.
+    #[serde(default)]
+    pub agent_steps: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

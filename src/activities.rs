@@ -295,6 +295,7 @@ pub fn stage_update(
     submission: &SubmissionInput,
     status: SubmissionStatus,
     judgment: Option<Judgment>,
+    agent_steps: Vec<String>,
 ) -> StageUpdate {
     StageUpdate {
         id: submission.id.clone(),
@@ -302,5 +303,6 @@ pub fn stage_update(
         status,
         judgment,
         error: None,
+        agent_steps,
     }
 }
