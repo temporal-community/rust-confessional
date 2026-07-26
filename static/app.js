@@ -17,6 +17,7 @@ const elements = {
   modeToggle: document.querySelector("#mode-toggle"),
   seedButton: document.querySelector("#seed-button"),
   resetButton: document.querySelector("#reset-button"),
+  demoRetry: document.querySelector("#demo-retry-button"),
   connectionState: document.querySelector("#connection-state"),
   connectionLabel: document.querySelector("#connection-label"),
   count: document.querySelector("#submission-count"),
@@ -448,6 +449,15 @@ elements.input.addEventListener("input", () => {
   if (pendingSubmission && elements.input.value.trim() !== pendingSubmission.text) {
     pendingSubmission = null;
   }
+});
+
+// Stage helper: load the confession that triggers the transient rate-limit beat
+// (the compose Activity fails retryably on its first two attempts). Populates the
+// box rather than submitting, so the audience sees the text before you confess.
+elements.demoRetry.addEventListener("click", () => {
+  elements.input.value = "My agent keeps getting rate-limited (HTTP 429).";
+  elements.input.dispatchEvent(new Event("input", { bubbles: true }));
+  elements.input.focus();
 });
 
 elements.holdToggle.addEventListener("change", async () => {

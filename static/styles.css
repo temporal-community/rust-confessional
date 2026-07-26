@@ -420,6 +420,23 @@ main {
   font-size: 0.78rem;
 }
 
+.demo-fill {
+  margin-top: 10px;
+  padding: 7px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.demo-fill:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
 .sms-invite {
   display: flex;
   align-items: center;
