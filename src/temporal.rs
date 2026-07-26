@@ -20,8 +20,8 @@ pub async fn connect_client() -> anyhow::Result<Client> {
     Ok(Client::new(connection, client_options)?)
 }
 
-pub fn workflow_id(session_id: &str, submission_id: &str) -> String {
-    format!("{WORKFLOW_ID_PREFIX}-{session_id}-{submission_id}")
+pub fn workflow_id(submission_id: &str) -> String {
+    format!("{WORKFLOW_ID_PREFIX}-{submission_id}")
 }
 
 pub async fn start_submission(
@@ -29,7 +29,7 @@ pub async fn start_submission(
     task_queue: &str,
     submission: SubmissionInput,
 ) -> anyhow::Result<String> {
-    let workflow_id = workflow_id(&submission.session_id, &submission.id);
+    let workflow_id = workflow_id(&submission.id);
     let options = WorkflowStartOptions::new(task_queue, &workflow_id)
         .id_conflict_policy(WorkflowIdConflictPolicy::UseExisting)
         .id_reuse_policy(WorkflowIdReusePolicy::RejectDuplicate)
@@ -154,9 +154,6 @@ mod tests {
 
     #[test]
     fn workflow_ids_are_stable_and_stage_readable() {
-        assert_eq!(
-            workflow_id("SHOW01", "01ABC"),
-            "rust-confession-SHOW01-01ABC"
-        );
+        assert_eq!(workflow_id("01ABC"), "rust-confession-01ABC");
     }
 }

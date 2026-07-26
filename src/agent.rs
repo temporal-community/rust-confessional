@@ -39,6 +39,7 @@ pub struct AgentLoopView<'a> {
     pub category: Category,
     pub findings: &'a [Finding],
     pub has_draft: bool,
+    pub revised: bool,
     pub iteration: u8,
 }
 
@@ -399,23 +400,45 @@ impl AgentBackend for FixtureBackend {
 
     async fn decide_next_step(&self, view: &AgentLoopView<'_>) -> Result<AgentStep, ModelError> {
         sleep(Duration::from_millis(300)).await;
-        // Deterministic script keyed on the loop's progress: research twice, draft
-        // once, revise once, then finish. `has_draft` (and the >= 4 cap) guarantee
-        // the loop always converges on `Finish`.
-        let step = match view.iteration {
-            0 => AgentStep::Lookup {
+        // Deterministic-but-branching policy keyed on the confession's category and
+        // the findings gathered so far, so different confessions produce different
+        // traces while the loop always converges on `Finish`:
+        //   deep   = remedy -> docs -> critique -> compose -> revise -> finish
+        //   medium = remedy -> critique -> compose -> revise -> finish
+        //   shallow (Automation/Other) = remedy -> compose -> finish
+        let deep = matches!(
+            view.category,
+            Category::Unsafe | Category::Concurrency | Category::ErrorHandling
+        );
+        let medium = matches!(
+            view.category,
+            Category::Ownership | Category::Data | Category::Testing
+        );
+        let has = |skill: Skill| view.findings.iter().any(|finding| finding.skill == skill);
+
+        let step = if !has(Skill::RemedyLookup) {
+            AgentStep::Lookup {
                 skill: Skill::RemedyLookup,
                 query: view.category.as_str().to_owned(),
-            },
-            1 => AgentStep::Lookup {
+            }
+        } else if deep && !has(Skill::DocLookup) {
+            AgentStep::Lookup {
+                skill: Skill::DocLookup,
+                query: view.category.as_str().to_owned(),
+            }
+        } else if (deep || medium) && !has(Skill::SelfCritique) {
+            AgentStep::Lookup {
                 skill: Skill::SelfCritique,
                 query: "review the working draft".to_owned(),
-            },
-            2 if !view.has_draft => AgentStep::Compose,
-            3 => AgentStep::Revise {
-                reason: "folded in new findings".to_owned(),
-            },
-            _ => AgentStep::Finish,
+            }
+        } else if !view.has_draft {
+            AgentStep::Compose
+        } else if (deep || medium) && !view.revised {
+            AgentStep::Revise {
+                reason: "folding in the self-critique".to_owned(),
+            }
+        } else {
+            AgentStep::Finish
         };
         Ok(step)
     }
@@ -828,6 +851,7 @@ mod tests {
 
         let mut findings: Vec<Finding> = Vec::new();
         let mut draft: Option<Judgment> = None;
+        let mut revised = false;
         let mut steps_taken = 0u8;
         let mut finished = false;
 
@@ -839,10 +863,14 @@ mod tests {
                     category: plan.category,
                     findings: &findings,
                     has_draft: draft.is_some(),
+                    revised,
                     iteration,
                 };
                 backend.decide_next_step(&view).await.unwrap()
             };
+            if matches!(step, AgentStep::Revise { .. }) {
+                revised = true;
+            }
 
             match step {
                 AgentStep::Lookup { skill, .. } => {
@@ -852,6 +880,7 @@ mod tests {
                             category: plan.category,
                             findings: &findings,
                             has_draft: draft.is_some(),
+                            revised,
                             iteration,
                         };
                         backend.run_skill(skill, &view).await.unwrap()
@@ -902,6 +931,7 @@ mod tests {
 
         let mut findings: Vec<Finding> = Vec::new();
         let mut draft: Option<Judgment> = None;
+        let mut revised = false;
         let mut steps_taken = 0u8;
 
         for iteration in 0..MAX_SESSION_AGENT_STEPS {
@@ -912,10 +942,14 @@ mod tests {
                     category: plan.category,
                     findings: &findings,
                     has_draft: draft.is_some(),
+                    revised,
                     iteration,
                 };
                 backend.decide_next_step(&view).await.unwrap()
             };
+            if matches!(step, AgentStep::Revise { .. }) {
+                revised = true;
+            }
 
             match step {
                 AgentStep::Lookup { skill, .. } => {
@@ -925,6 +959,7 @@ mod tests {
                             category: plan.category,
                             findings: &findings,
                             has_draft: draft.is_some(),
+                            revised,
                             iteration,
                         };
                         backend.run_skill(skill, &view).await.unwrap()

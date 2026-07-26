@@ -230,8 +230,16 @@ async fn run_autonomous(
     ctx.state_mut(|state| state.plan = Some(plan.clone()));
 
     for iteration in 0..MAX_AGENT_STEPS {
-        let (findings, has_draft) =
-            ctx.state(|state| (state.findings.clone(), state.judgment.is_some()));
+        let (findings, has_draft, revised) = ctx.state(|state| {
+            (
+                state.findings.clone(),
+                state.judgment.is_some(),
+                state
+                    .steps
+                    .iter()
+                    .any(|step| matches!(step, AgentStep::Revise { .. })),
+            )
+        });
         let step = match ctx
             .start_activity(
                 ConfessionalActivities::decide_next_step,
@@ -240,6 +248,7 @@ async fn run_autonomous(
                     category: plan.category,
                     findings: findings.clone(),
                     has_draft,
+                    revised,
                     iteration,
                 },
                 activity_options(20, 75, 3),
@@ -614,9 +623,17 @@ async fn compose_confession_autonomous(
     update_item(ctx, &id, |item| item.plan = Some(plan.clone()));
 
     for iteration in 0..MAX_SESSION_AGENT_STEPS {
-        let (findings, has_draft) = ctx.state(|state| {
+        let (findings, has_draft, revised) = ctx.state(|state| {
             confession(state, &id)
-                .map(|item| (item.findings.clone(), item.judgment.is_some()))
+                .map(|item| {
+                    (
+                        item.findings.clone(),
+                        item.judgment.is_some(),
+                        item.steps
+                            .iter()
+                            .any(|step| matches!(step, AgentStep::Revise { .. })),
+                    )
+                })
                 .unwrap_or_default()
         });
         let step = match ctx
@@ -627,6 +644,7 @@ async fn compose_confession_autonomous(
                     category: plan.category,
                     findings: findings.clone(),
                     has_draft,
+                    revised,
                     iteration,
                 },
                 activity_options(20, 75, 3),

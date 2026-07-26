@@ -444,9 +444,9 @@ async function runAction(button, path, body, successMessage, headers) {
 
 function newIdempotencyKey() {
   if (window.crypto && typeof window.crypto.randomUUID === "function") {
-    return window.crypto.randomUUID();
+    return window.crypto.randomUUID().replace(/-/g, "").slice(0, 8);
   }
-  return `fallback-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.slice(0, 8);
 }
 
 elements.form.addEventListener("submit", async (event) => {

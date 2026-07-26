@@ -40,6 +40,8 @@ pub struct DecideInput {
     pub category: Category,
     pub findings: Vec<Finding>,
     pub has_draft: bool,
+    #[serde(default)]
+    pub revised: bool,
     pub iteration: u8,
 }
 
@@ -153,6 +155,7 @@ impl ConfessionalActivities {
             category: input.category,
             findings: &input.findings,
             has_draft: input.has_draft,
+            revised: input.revised,
             iteration: input.iteration,
         };
         self.backend
@@ -172,6 +175,8 @@ impl ConfessionalActivities {
             category: input.category,
             findings: &input.findings,
             has_draft: input.has_draft,
+            // run_skill does not branch on `revised`, so its value is immaterial here.
+            revised: false,
             iteration: input.iteration,
         };
         self.backend

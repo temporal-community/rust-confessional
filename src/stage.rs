@@ -137,7 +137,7 @@ impl StageApp {
             agent_mode,
         };
         let workflow_id = match mode {
-            WorkflowMode::PerConfession => temporal::workflow_id(&input.session_id, &input.id),
+            WorkflowMode::PerConfession => temporal::workflow_id(&input.id),
             WorkflowMode::Session => temporal::session_workflow_id(&input.session_id),
         };
         let mut staged = StageSubmission::received(&input, workflow_id.clone());
@@ -709,7 +709,10 @@ impl Default for StoredStageState {
             session_id: Ulid::new().to_string(),
             held: true,
             workflow_mode: WorkflowMode::default(),
-            agent_mode: AgentMode::default(),
+            // The demo defaults to the autonomous agent loop. `AgentMode::default()`
+            // stays `Linear` for SubmissionInput replay safety; only the fresh store
+            // state opts into autonomous so a clean session starts in the loop.
+            agent_mode: AgentMode::Autonomous,
             submissions: Vec::new(),
         }
     }
