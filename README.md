@@ -20,8 +20,7 @@ Temporal installed on the host.
 - A tiny in-memory `naive` agent for the opening failure contrast
 - A Rust/Axum stage server and live browser dashboard
 - One Temporal Workflow per confession (production shape), with a dashboard
-  toggle to an aggregate one-Workflow-per-session mode that makes durable state
-  vivid on stage
+  toggle to an aggregate per-session mode that makes durable state vivid on stage
 - Typed Activities for planning, remedy lookup, composition, projection, and
   delivery
 - A deterministic fixture model for rehearsals and offline stage use
@@ -33,16 +32,13 @@ Temporal installed on the host.
 - A deliberate `Reply Pending` checkpoint and durable `release` Signal
 - A dry, model-written `penance` rendered on the dashboard as a loop that types
   itself out, repeated by severity
-- Three stage failure beats — a transient model rate-limit that Temporal retries
-  and heals, a network partition, and a Worker crash — contrasting Temporal's
-  high-level reliability with Rust's low-level reliability
+- Three failure beats — model rate-limit, network partition, Worker crash —
+  contrasting Temporal's high-level with Rust's low-level reliability
 - Persistent Docker volumes for Temporal history and the dashboard projection
 - Three score-based “Hall of Shame” awards, selected only from `Sent` rows
 
-Audience input can come from the local browser form or from Twilio (either a
-signed inbound webhook or outbound-only API polling). Twilio support is
-inbound-only: the demo delivery Activity reports back to the stage and does not
-send an SMS reply.
+Twilio input is inbound-only: audience texts arrive by webhook or API polling,
+and the delivery Activity reports back to the stage without sending an SMS reply.
 
 ## Quick start
 
@@ -52,10 +48,9 @@ Prerequisites:
 - Loopback ports `3000`, `7233`, and `8233` available
 - Network access for the first image pull and Rust dependency build
 
-The official native Temporal Rust SDK is Public Preview at the version used
-here, and its APIs may evolve. Every `temporalio-*` crate is intentionally pinned
-to exactly `=0.5.0`, with `Cargo.lock` committed; treat upgrades as deliberate
-code and replay-compatibility work.
+The native Temporal Rust SDK is in Public Preview; APIs may evolve. Every
+`temporalio-*` crate is pinned to `=0.5.0` with `Cargo.lock` committed — treat
+upgrades as deliberate replay-compatibility work.
 
 Start in fixture mode, which is the safest mode for a live presentation:
 
@@ -71,10 +66,9 @@ Open:
 - Temporal Web UI: <http://localhost:8233>
 
 The dashboard starts with **Hold before reply** enabled. Submit a confession,
-wait for `Reply Pending`, then turn the hold off to let it finish. While the
-agent is working, the default public card shows a neutral placeholder; it is
-replaced by the agent's `display_confession` only when the structured judgment
-arrives.
+wait for `Reply Pending`, then turn the hold off to finish. While the agent
+works, the public card shows a neutral placeholder, replaced by the agent's
+`display_confession` once the judgment arrives.
 
 Stop the containers while retaining both named volumes:
 
@@ -87,9 +81,9 @@ release, and restart sequence.
 
 ## Opening beat: the naïve agent forgets
 
-The runtime image also contains a deliberately non-durable agent. It uses the
-fixture backend, builds one judgment, and holds the pending reply only in process
-memory. Run it after `make build` or `make up`.
+The runtime image also ships a deliberately non-durable agent: fixture backend,
+one judgment, pending reply held only in process memory. Run it after
+`make build` or `make up`.
 
 Terminal A (this command intentionally stays attached):
 
@@ -142,18 +136,15 @@ export SHOW_RAW_CONFESSIONS=true
 docker compose up -d --force-recreate stage
 ```
 
-In this mode Stage removes control characters and collapses whitespace (keeping
-letters, numbers, punctuation, and emoji), blanks any words listed in the
-optional `MASK_WORDS` environment variable, immediately projects the result,
-persists it in the `stage-data` volume, and keeps it instead of replacing it with
-`display_confession`. Submissions that are empty once control characters are
-removed are rejected. No word list is bundled in this repository; supply your own
-via `MASK_WORDS` (a comma- or space-separated list kept in your git-ignored `.env`).
-These guards raise the floor; they are not human moderation and cannot catch
-creative spellings, context, or personal information such as names or phone
-numbers. Keep a presenter kill switch (the Hold toggle and Reset) ready and
-rehearse with real inputs before allowing open audience input or a public Twilio
-number.
+In this mode Stage normalizes the text (strips control characters, collapses
+whitespace, keeps letters/numbers/punctuation/emoji), blanks any `MASK_WORDS`,
+then projects and persists it in the `stage-data` volume instead of using
+`display_confession`. Text that is empty after normalization is rejected. No word
+list ships here — supply your own via `MASK_WORDS` (comma- or space-separated, in
+your git-ignored `.env`). These guards raise the floor but are not moderation:
+they miss creative spellings, context, and PII like names or phone numbers. Keep
+the Hold toggle and Reset ready as a kill switch, and rehearse with real inputs
+before opening to an audience or a public Twilio number.
 
 Stage fails closed if Twilio is configured at the same time as raw display. It
 will start only if `ALLOW_UNMODERATED_TWILIO=true` is also explicit. That escape
@@ -169,10 +160,10 @@ docker compose up -d --force-recreate stage
 make reset-demo
 ```
 
-Changing the flag does not retroactively scrub rows already persisted. Temporal
-history retains raw Workflow input and the plan/compose Activity inputs in
-either mode. The lookup Activity receives only the typed plan, and delivery
-receives only the submission ID, so raw text is not copied into those payloads.
+Changing the flag does not scrub rows already persisted. Temporal history retains
+raw Workflow input and the plan/compose Activity inputs in either mode; the lookup
+Activity gets only the typed plan and delivery only the submission ID, so raw text
+is not copied there.
 
 ## Model modes
 
@@ -184,10 +175,10 @@ Fixture mode is the default:
 MODEL_PROVIDER=fixture docker compose up --build -d
 ```
 
-It performs keyword-based classification, uses the bundled remedy catalog, and
-adds short simulated delays so the pipeline remains visible. Its outputs are
-repeatable and it makes no model network calls. The Docker image must still be
-built or pulled before an offline event.
+It classifies by keyword, uses the bundled remedy catalog, and adds short
+simulated delays so the pipeline stays visible. Outputs are repeatable and it
+makes no network calls — but the Docker image must still be built or pulled
+before an offline event.
 
 ### OpenAI mode
 
@@ -202,10 +193,9 @@ export OPENAI_MODEL="YOUR_MODEL_ID"
 docker compose up --build -d
 ```
 
-The configured default model is visible in `compose.yaml`, but setting
-`OPENAI_MODEL` explicitly is recommended because model availability varies by
-account. Requests use the Responses API, strict JSON schemas, a 12-second
-default HTTP timeout, and `store: false`.
+The default model is in `compose.yaml`, but set `OPENAI_MODEL` explicitly since
+availability varies by account. Requests use the Responses API with strict JSON
+schemas, a 12-second HTTP timeout, and `store: false`.
 
 To switch an already-running stack back to the fixture backend:
 
@@ -220,10 +210,10 @@ already failed after exhausting its retries.
 
 ## Optional inbound SMS (Twilio)
 
-Twilio ingress is disabled unless all three variables below are set. The webhook
-URL must be the exact external URL Twilio invokes, including scheme, host, path,
-port, and any query string; that exact value is part of signature validation.
-Keep `SHOW_RAW_CONFESSIONS=false` for a public Twilio number.
+The webhook path is disabled unless all three variables below are set.
+`TWILIO_WEBHOOK_URL` must be the exact external URL Twilio invokes (scheme, host,
+path, port, query string) — it is part of signature validation. Keep
+`SHOW_RAW_CONFESSIONS=false` for a public number.
 
 ```sh
 export TWILIO_ACCOUNT_SID="AC..."
@@ -243,22 +233,18 @@ proxy that forwards only `/webhooks/twilio/messages` to
 tunnel: it would also expose the unauthenticated hold, seed, and reset controls.
 
 The endpoint requires `application/x-www-form-urlencoded`, validates
-`X-Twilio-Signature` and `AccountSid`, and uses `MessageSid` as the stable
-submission identity. It requires `From` and `To` for request validation but does
-not retain or log those phone numbers. Standard STOP/START/HELP-family command
-messages are acknowledged without starting Workflows.
-
-The response is empty TwiML. There is no outbound Twilio API call and no SMS
-judgment; results appear on the stage dashboard. An unsigned request is rejected.
+`X-Twilio-Signature` and `AccountSid`, and keys submissions on `MessageSid`.
+`From`/`To` are validated but never retained or logged. STOP/START/HELP-family
+messages are acknowledged without starting Workflows. The response is empty TwiML
+— no outbound SMS; results appear on the dashboard, and unsigned requests are
+rejected.
 
 ### Inbound via API polling (no public URL)
 
-When the host cannot expose a public webhook — a locked-down or work laptop, or
-any network where inbound HTTP is not an option — Stage can instead **poll**
-Twilio's REST API for inbound messages. The process only ever makes outbound
-HTTPS calls to `api.twilio.com`; nothing listens for Twilio, so there is no
-tunnel and none of the whole-service exposure the webhook note above warns
-about.
+When the host cannot expose a public webhook — a locked-down or work laptop —
+Stage can instead **poll** Twilio's REST API. It only makes outbound HTTPS calls
+to `api.twilio.com`; nothing listens for Twilio, so there is no tunnel and none
+of the exposure the webhook note above warns about.
 
 Polling activates when `TWILIO_NUMBER` is set. Credentials prefer an API key
 (Console → Account → API keys & tokens), falling back to the account auth token:
@@ -304,17 +290,12 @@ is why the on-screen caption intentionally omits it.
 
 ## Failure modes to demo
 
-The demo shows reliability at two layers, and each beat exercises one:
-
-- **Temporal (high-level):** durable retries with backoff, Activity timeouts,
-  at-least-once Task redelivery, and Workflow state that survives crashes and
-  partitions.
-- **Rust (low-level):** typed retryable-versus-permanent errors, bounded HTTP
-  timeouts, and a Worker that reconnects cleanly, all checked by the compiler.
-
-Three beats, escalating from a recoverable glitch to outright process death.
-Full speaker cues and fallbacks are in
-[docs/DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md).
+The demo shows reliability at two layers: **Temporal** (durable retries with
+backoff, Activity timeouts, at-least-once redelivery, state that survives crashes
+and partitions) and **Rust** (typed retryable-vs-permanent errors, bounded HTTP
+timeouts, clean Worker reconnect — all compiler-checked). Three beats escalate
+from a recoverable glitch to outright process death; full speaker cues and
+fallbacks are in [docs/DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md).
 
 ### 1. Transient model failure (rate-limit or downtime)
 
@@ -375,11 +356,11 @@ throughout.
   status report, and delivery runs behind an Activity boundary so replay stays
   deterministic.
 - **Durable in-process state.** The Workflow folds each result into its own
-  state with `ctx.state_mut(...)` (plan, judgment, status, release flag). That
-  state is rebuilt by replay after any failure and exposed through the `snapshot`
-  query. Because a Workflow runs single-threaded and deterministic, it needs no
-  locks and has no data races, and the Rust type system still guarantees it. This
-  "one durable object, many calls, no locks" property is the heart of the demo.
+  state via `ctx.state_mut(...)` (plan, judgment, status, release flag), rebuilt
+  by replay after any failure and exposed through the `snapshot` query. It runs
+  single-threaded and deterministic, so it needs no locks and has no data races —
+  this "one durable object, many calls, no locks" property is the heart of the
+  demo.
 - **Per-operation timeouts and retries.** Each Activity has an explicit
   start-to-close and schedule-to-close timeout and a retry budget; see
   `activity_options` in `src/workflows.rs`.
@@ -387,18 +368,16 @@ throughout.
 ### Best practices worth taking away
 
 - Model the contract between steps as **typed Rust values**, not loose strings.
-- Keep **Workflow code deterministic**; push all I/O, time, and randomness into
-  Activities.
 - Give every side effect an **explicit timeout and retry budget**, and mark
   permanent failures non-retryable so they fail fast.
 - Treat external effects as **at-least-once** and deduplicate (delivery is capped
   at one attempt until it dedupes by submission ID).
-- Prefer **one Workflow per unit of work**. Temporal scales by running many
-  Workflows, not by cramming requests into one. Consolidate into a per-entity,
-  per-window, or per-region Workflow only when the domain needs aggregation,
-  ordering, windowing, or rate-limiting, not for raw throughput. A single
-  long-lived Workflow that ingests everything also needs continue-as-new for
-  history growth and is where the preview Rust SDK is thinnest.
+- Prefer **one Workflow per unit of work** — Temporal scales by running many
+  Workflows, not by cramming requests into one. Consolidate into a
+  per-entity/window/region Workflow only when the domain needs aggregation,
+  ordering, windowing, or rate-limiting. A single long-lived Workflow ingesting
+  everything also needs continue-as-new for history growth, and is where the
+  preview Rust SDK is thinnest.
 - Pin **SDK versions** and treat upgrades as deliberate replay-compatibility
   work; use **stable Workflow IDs** and **durable Signals**.
 
@@ -532,9 +511,15 @@ src/activities.rs   model/tool/report/delivery side effects
 src/agent.rs        fixture and OpenAI agent backends
 src/domain.rs       shared serializable domain types
 src/twilio.rs       Twilio form parsing, signature checks, and keywords
+src/twilio_poll.rs  outbound-only polling of Twilio for inbound messages
 static/             stage dashboard
+tools/gen_qr.py     regenerate the confession QR for your own number
 compose.yaml        three-service local stack
 ```
 
 For design boundaries, failure behavior, and production gaps, read
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Acknowledgments
+
+Built with help from Melissa Herrera, Spencer Judge, and Chris Olszewski.
