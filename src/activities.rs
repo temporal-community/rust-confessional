@@ -11,8 +11,11 @@ use tokio::time::sleep;
 use tracing::warn;
 
 use crate::{
-    agent::{AgentBackend, ModelError, remedy_for},
-    domain::{AgentPlan, Judgment, Remedy, StageUpdate, SubmissionInput, SubmissionStatus},
+    agent::{AgentBackend, AgentLoopView, ModelError, remedy_for},
+    domain::{
+        AgentPlan, AgentStep, Category, Finding, Judgment, Remedy, Skill, StageUpdate,
+        SubmissionInput, SubmissionStatus,
+    },
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,6 +28,28 @@ pub struct ComposeInput {
     pub submission: SubmissionInput,
     pub plan: AgentPlan,
     pub remedy: Option<Remedy>,
+}
+
+/// What the autonomous loop needs to reconstruct an `AgentLoopView` inside the
+/// `decide_next_step` Activity (deterministic Workflow code owns no I/O).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecideInput {
+    pub text: String,
+    pub category: Category,
+    pub findings: Vec<Finding>,
+    pub has_draft: bool,
+    pub iteration: u8,
+}
+
+/// Same view, plus the concrete skill the loop chose, for the `run_skill` Activity.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillInput {
+    pub skill: Skill,
+    pub text: String,
+    pub category: Category,
+    pub findings: Vec<Finding>,
+    pub has_draft: bool,
+    pub iteration: u8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,6 +131,44 @@ impl ConfessionalActivities {
         }
         self.backend
             .compose(&input.submission, &input.plan, input.remedy.as_ref())
+            .await
+            .map_err(model_error)
+    }
+
+    #[activity]
+    pub async fn decide_next_step(
+        self: Arc<Self>,
+        _ctx: ActivityContext,
+        input: DecideInput,
+    ) -> Result<AgentStep, ActivityError> {
+        let view = AgentLoopView {
+            text: &input.text,
+            category: input.category,
+            findings: &input.findings,
+            has_draft: input.has_draft,
+            iteration: input.iteration,
+        };
+        self.backend
+            .decide_next_step(&view)
+            .await
+            .map_err(model_error)
+    }
+
+    #[activity]
+    pub async fn run_skill(
+        self: Arc<Self>,
+        _ctx: ActivityContext,
+        input: SkillInput,
+    ) -> Result<Finding, ActivityError> {
+        let view = AgentLoopView {
+            text: &input.text,
+            category: input.category,
+            findings: &input.findings,
+            has_draft: input.has_draft,
+            iteration: input.iteration,
+        };
+        self.backend
+            .run_skill(input.skill, &view)
             .await
             .map_err(model_error)
     }

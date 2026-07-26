@@ -21,6 +21,7 @@ async fn main() -> anyhow::Result<()> {
         text: confession,
         created_at: Utc::now(),
         hold_before_reply: true,
+        agent_mode: Default::default(),
     };
     let backend = FixtureBackend;
 

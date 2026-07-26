@@ -31,8 +31,8 @@ use ulid::Ulid;
 use crate::{
     config::{StageConfig, TwilioPollConfig},
     domain::{
-        Awards, PublicStageState, StageSubmission, StageUpdate, SubmissionInput, SubmissionStatus,
-        WorkflowMode,
+        AgentMode, Awards, PublicStageState, StageSubmission, StageUpdate, SubmissionInput,
+        SubmissionStatus, WorkflowMode,
     },
     temporal,
     twilio::{compliance_keyword, form_field, parse_form_body, verify_twilio_signature},
@@ -130,6 +130,7 @@ impl StageApp {
             text,
             created_at: Utc::now(),
             hold_before_reply: held,
+            agent_mode: AgentMode::default(),
         };
         let workflow_id = match mode {
             WorkflowMode::PerConfession => temporal::workflow_id(&input.session_id, &input.id),
@@ -995,6 +996,7 @@ mod tests {
             text: "one".into(),
             created_at: Utc::now(),
             hold_before_reply: true,
+            agent_mode: AgentMode::default(),
         };
         let mut first = StageSubmission::received(&input, "wf-first".into());
         first.status = SubmissionStatus::Sent;
@@ -1021,6 +1023,7 @@ mod tests {
             text: "one".into(),
             created_at: Utc::now(),
             hold_before_reply: true,
+            agent_mode: AgentMode::default(),
         };
         let first = StageSubmission::received(&input, "wf-first".into());
         let (stored, inserted) = store.insert_if_absent(first.clone(), 1).await.unwrap();

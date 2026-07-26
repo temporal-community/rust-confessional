@@ -40,6 +40,44 @@ impl Category {
     }
 }
 
+/// Which agent shape a confession's Workflow runs: the fixed linear pipeline or
+/// the autonomous decide/act loop. Defaults to `Linear` so existing submissions
+/// (and replayed histories missing the field) keep the original behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentMode {
+    #[default]
+    Linear,
+    Autonomous,
+}
+
+/// A capability the autonomous loop can invoke as a research step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Skill {
+    RemedyLookup,
+    DocLookup,
+    SelfCritique,
+}
+
+/// One decision the autonomous agent makes on each turn of its loop.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum AgentStep {
+    Lookup { skill: Skill, query: String },
+    Compose,
+    Revise { reason: String },
+    Finish,
+}
+
+/// A result the agent gathered from running a `Skill`, folded into later steps.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Finding {
+    pub skill: Skill,
+    pub summary: String,
+    pub detail: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubmissionInput {
     pub id: String,
@@ -47,6 +85,8 @@ pub struct SubmissionInput {
     pub text: String,
     pub created_at: DateTime<Utc>,
     pub hold_before_reply: bool,
+    #[serde(default)]
+    pub agent_mode: AgentMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -258,6 +298,10 @@ pub struct WorkflowSnapshot {
     pub plan: Option<AgentPlan>,
     pub judgment: Option<Judgment>,
     pub released: bool,
+    #[serde(default)]
+    pub findings: Vec<Finding>,
+    #[serde(default)]
+    pub steps: Vec<AgentStep>,
 }
 
 /// One confession's state as held inside the aggregate `SessionWorkflow`.
