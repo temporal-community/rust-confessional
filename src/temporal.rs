@@ -156,4 +156,12 @@ mod tests {
     fn workflow_ids_are_stable_and_stage_readable() {
         assert_eq!(workflow_id("01ABC"), "rust-confession-01ABC");
     }
+
+    #[test]
+    fn session_workflow_ids_are_stable_and_stage_readable() {
+        assert_eq!(
+            session_workflow_id("01SESS"),
+            "rust-confession-session-01SESS"
+        );
+    }
 }

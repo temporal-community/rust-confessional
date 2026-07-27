@@ -87,6 +87,8 @@ pub trait AgentBackend: Send + Sync {
     fn mode(&self) -> &'static str;
 }
 
+/// Select the agent backend for the configured model provider: the offline,
+/// deterministic `FixtureBackend` or the model-driven `OpenAiBackend`.
 pub fn build_backend(config: &WorkerConfig) -> anyhow::Result<Arc<dyn AgentBackend>> {
     match config.model_provider {
         ModelProvider::Fixture => Ok(Arc::new(FixtureBackend)),
@@ -101,6 +103,8 @@ pub fn build_backend(config: &WorkerConfig) -> anyhow::Result<Arc<dyn AgentBacke
     }
 }
 
+/// Model-driven backend that calls the OpenAI Responses API with strict
+/// structured-output schemas for planning, composing, deciding, and critiquing.
 #[derive(Debug)]
 pub struct OpenAiBackend {
     client: Client,
@@ -398,6 +402,9 @@ struct Critique {
     detail: String,
 }
 
+/// Offline, deterministic backend used by the stage demo and tests: it never
+/// touches the network, so the autonomous loop stays reproducible and safe to
+/// project live.
 #[derive(Debug, Default)]
 pub struct FixtureBackend;
 
@@ -585,6 +592,9 @@ fn simulated_doc_lookup() -> Finding {
     }
 }
 
+/// The approved remedy catalog entry for a category. This bundled catalog, not
+/// model prose, owns the guidance and suggested tools so the loop's advice stays
+/// on-brand and deterministic.
 pub fn remedy_for(category: Category) -> Remedy {
     let (guidance, tools) = match category {
         Category::Concurrency => (
@@ -1172,6 +1182,146 @@ mod tests {
         );
         let judgment = draft.expect("loop must produce a draft judgment");
         judgment.validate().unwrap();
+    }
+
+    /// Drive the fixture's decide/act loop for one confession and return the
+    /// exact sequence of steps it chose. Tracks only the flags `decide_next_step`
+    /// reads (findings, has_draft, revised), so it isolates the decision policy
+    /// without needing a real compose.
+    async fn fixture_step_trace(text: &str) -> Vec<AgentStep> {
+        let backend = FixtureBackend;
+        let input = submission(text);
+        let plan = backend.plan(&input).await.unwrap();
+        let mut findings: Vec<Finding> = Vec::new();
+        let mut has_draft = false;
+        let mut revised = false;
+        let mut trace: Vec<AgentStep> = Vec::new();
+
+        for iteration in 0..8 {
+            let step = {
+                let view = AgentLoopView {
+                    text: &input.text,
+                    category: plan.category,
+                    findings: &findings,
+                    has_draft,
+                    revised,
+                    iteration,
+                };
+                backend.decide_next_step(&view).await.unwrap()
+            };
+            trace.push(step.clone());
+            match step {
+                AgentStep::Lookup { skill, .. } => {
+                    let view = AgentLoopView {
+                        text: &input.text,
+                        category: plan.category,
+                        findings: &findings,
+                        has_draft,
+                        revised,
+                        iteration,
+                    };
+                    findings.push(backend.run_skill(skill, &view).await.unwrap());
+                }
+                AgentStep::Compose => has_draft = true,
+                AgentStep::Revise { .. } => {
+                    has_draft = true;
+                    revised = true;
+                }
+                AgentStep::Finish => break,
+            }
+        }
+        trace
+    }
+
+    #[tokio::test]
+    async fn decide_next_step_is_content_aware_deep_versus_shallow() {
+        // Locks the "agentic" fixture behavior: a deep category (Unsafe) gathers
+        // more evidence and revises, while a shallow one (Automation) takes the
+        // short path. Both must still converge on Finish.
+        let deep = fixture_step_trace("I used unsafe because I was tired.").await;
+        let shallow =
+            fixture_step_trace("I wrote a Python script that now runs the company.").await;
+
+        assert_ne!(deep, shallow, "different categories must trace differently");
+        assert!(
+            deep.len() > shallow.len(),
+            "the deep category must take more steps: deep={deep:?} shallow={shallow:?}"
+        );
+
+        // The deep trace consults the docs and revises; the shallow one does neither.
+        assert!(
+            deep.iter().any(|step| matches!(
+                step,
+                AgentStep::Lookup {
+                    skill: Skill::DocLookup,
+                    ..
+                }
+            )),
+            "deep trace should consult the docs: {deep:?}"
+        );
+        assert!(
+            deep.iter()
+                .any(|step| matches!(step, AgentStep::Revise { .. })),
+            "deep trace should revise: {deep:?}"
+        );
+        assert!(
+            !shallow.iter().any(|step| matches!(
+                step,
+                AgentStep::Lookup {
+                    skill: Skill::DocLookup,
+                    ..
+                }
+            )),
+            "shallow trace should not consult the docs: {shallow:?}"
+        );
+        assert!(
+            !shallow
+                .iter()
+                .any(|step| matches!(step, AgentStep::Revise { .. })),
+            "shallow trace should not revise: {shallow:?}"
+        );
+
+        assert_eq!(deep.last(), Some(&AgentStep::Finish));
+        assert_eq!(shallow.last(), Some(&AgentStep::Finish));
+        // Every trace must open with the approved-remedy lookup.
+        assert!(matches!(
+            deep.first(),
+            Some(AgentStep::Lookup {
+                skill: Skill::RemedyLookup,
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn compose_folds_a_doc_lookup_into_the_prescription() {
+        // Complements `revise_with_findings_changes_the_draft` (which exercises
+        // the SelfCritique -> sentence fold) by locking the distinct DocLookup ->
+        // prescription branch of `compose`.
+        let backend = FixtureBackend;
+        let input = submission("I used unsafe because I was tired.");
+        let plan = backend.plan(&input).await.unwrap();
+
+        let base = backend.compose(&input, &plan, None, &[]).await.unwrap();
+        let doc = Finding {
+            skill: Skill::DocLookup,
+            summary: "Doc lookup: the std API already covers this case.".to_owned(),
+            detail: String::new(),
+        };
+        let with_doc = backend
+            .compose(&input, &plan, None, std::slice::from_ref(&doc))
+            .await
+            .unwrap();
+        with_doc.validate().unwrap();
+
+        assert_ne!(base.prescription, with_doc.prescription);
+        assert!(
+            with_doc.prescription.contains("Docs:"),
+            "prescription should carry the folded doc lookup: {}",
+            with_doc.prescription
+        );
+        // The DocLookup fold touches only the prescription, not the sentence.
+        assert_eq!(base.sentence, with_doc.sentence);
     }
 
     #[test]

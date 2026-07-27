@@ -408,6 +408,45 @@ mod tests {
     }
 
     #[test]
+    fn agent_step_labels_are_stable() {
+        // The dashboard renders these labels as the autonomous step trace, so
+        // pin every variant's wording.
+        assert_eq!(
+            AgentStep::Lookup {
+                skill: Skill::RemedyLookup,
+                query: String::new(),
+            }
+            .label(),
+            "Looked up an approved remedy"
+        );
+        assert_eq!(
+            AgentStep::Lookup {
+                skill: Skill::DocLookup,
+                query: String::new(),
+            }
+            .label(),
+            "Consulted the docs"
+        );
+        assert_eq!(
+            AgentStep::Lookup {
+                skill: Skill::SelfCritique,
+                query: String::new(),
+            }
+            .label(),
+            "Self-critiqued the draft"
+        );
+        assert_eq!(AgentStep::Compose.label(), "Composed a draft");
+        assert_eq!(
+            AgentStep::Revise {
+                reason: String::new(),
+            }
+            .label(),
+            "Revised the draft"
+        );
+        assert_eq!(AgentStep::Finish.label(), "Finished");
+    }
+
+    #[test]
     fn judgment_rejects_invalid_severity() {
         let judgment = Judgment {
             display_confession: "I trusted an undocumented invariant.".into(),

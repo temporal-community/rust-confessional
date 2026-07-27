@@ -1101,6 +1101,17 @@ mod tests {
         assert!(validate_submission_id("").is_err());
     }
 
+    #[test]
+    fn submission_ids_enforce_the_length_and_charset_boundary() {
+        // Dash and underscore are the only non-alphanumeric characters allowed;
+        // the length cap is an inclusive 128 bytes.
+        validate_submission_id("web-01ABC_def").unwrap();
+        validate_submission_id(&"a".repeat(128)).unwrap();
+        assert!(validate_submission_id(&"a".repeat(129)).is_err());
+        assert!(validate_submission_id("has space").is_err());
+        assert!(validate_submission_id("emoji-\u{1f600}").is_err());
+    }
+
     #[tokio::test]
     async fn signed_twilio_compliance_message_is_acknowledged_without_submission() {
         let path = std::env::temp_dir().join(format!("rust-confessional-{}.json", Ulid::new()));
