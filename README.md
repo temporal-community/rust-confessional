@@ -6,11 +6,16 @@ and produces a dry but useful judgment. The dashboard makes every transition
 visible. Kill the Worker at the controlled checkpoint, release the replies while
 it is offline, restart it, and watch Temporal resume the agent.
 
-![The Rust Confessional dashboard: confession form, durable agent pipeline, live confession feed, and the Hall of Shame awards](static/Ferris-Confessional.png)
+![The Rust Confessional dashboard: confession form, durable agent pipeline, live confession feed, and the Hall of Shame awards](static/Ferris-Confessional2.png)
 
 The talk-sized thesis is:
 
 > Rust makes the agent loop explicit. Temporal makes its progress survive.
+
+**Built on the official Temporal Rust SDK** (Public Preview) — if you want to build
+durable Rust services yourself, start here:
+[`temporalio/sdk-rust`](https://github.com/temporalio/sdk-rust) and the
+[Rust SDK docs](https://docs.temporal.io/develop/rust).
 
 This repository is intentionally Docker-first. You do not need Rust, Cargo, or
 Temporal installed on the host.
