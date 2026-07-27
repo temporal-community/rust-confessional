@@ -726,6 +726,7 @@ struct StageStore {
 
 impl StageStore {
     async fn load(path: PathBuf) -> anyhow::Result<Self> {
+        let path = validate_store_path_within_cwd(&path)?;
         let state = match tokio::fs::read(&path).await {
             Ok(bytes) => serde_json::from_slice(&bytes)?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -907,6 +908,34 @@ impl StageStore {
         tokio::fs::rename(temporary, &self.path).await?;
         Ok(())
     }
+}
+
+fn validate_store_path_within_cwd(path: &Path) -> anyhow::Result<PathBuf> {
+    let base = std::env::current_dir()?.canonicalize()?;
+    let candidate = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base.join(path)
+    };
+
+    let normalized = if candidate.exists() {
+        candidate.canonicalize()?
+    } else {
+        let parent = candidate
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("invalid store path"))?
+            .canonicalize()?;
+        let file_name = candidate
+            .file_name()
+            .ok_or_else(|| anyhow::anyhow!("invalid store path"))?;
+        parent.join(file_name)
+    };
+
+    if !normalized.starts_with(&base) {
+        anyhow::bail!("store path escapes allowed base directory");
+    }
+
+    Ok(normalized)
 }
 
 fn temporary_path(path: &Path) -> PathBuf {
