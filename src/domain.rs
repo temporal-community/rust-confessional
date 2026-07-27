@@ -147,7 +147,6 @@ pub struct Judgment {
     pub severity_reason: String,
     pub prescription: String,
     pub suggested_tools: Vec<String>,
-    pub sentence: String,
     /// A short, playful assignment ("Write a loop that prints foo then bar").
     #[serde(default)]
     pub penance: String,
@@ -202,11 +201,6 @@ impl Judgment {
         anyhow::ensure!(
             self.prescription.chars().count() <= MAX_SHORT_FIELD_CHARS,
             "prescription is too long"
-        );
-        anyhow::ensure!(!self.sentence.trim().is_empty(), "sentence cannot be empty");
-        anyhow::ensure!(
-            self.sentence.chars().count() <= MAX_SHORT_FIELD_CHARS,
-            "sentence is too long"
         );
         anyhow::ensure!(!self.penance.trim().is_empty(), "penance cannot be empty");
         anyhow::ensure!(
@@ -282,8 +276,6 @@ pub struct StageSubmission {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prescription: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub sentence: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub penance: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub penance_line: Option<String>,
@@ -314,7 +306,6 @@ impl StageSubmission {
             judgment: None,
             severity: None,
             prescription: None,
-            sentence: None,
             penance: None,
             penance_line: None,
             penance_reps: None,
@@ -473,7 +464,6 @@ mod tests {
             severity_reason: "prod-facing unsafe".into(),
             prescription: "Use a type.".into(),
             suggested_tools: vec![],
-            sentence: "Write a test.".into(),
             penance: "Write a loop that prints foo then bar.".into(),
             penance_line: "foo bar".into(),
             award_scores: AwardScores::default(),
@@ -492,7 +482,6 @@ mod tests {
             severity_reason: String::new(),
             prescription: "Use a type.".into(),
             suggested_tools: vec!["clippy".into()],
-            sentence: "Write a test.".into(),
             penance: "Write a loop that prints foo then bar.".into(),
             penance_line: "foo bar".into(),
             award_scores: AwardScores::default(),
