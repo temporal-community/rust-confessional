@@ -169,13 +169,17 @@ function renderSystem(state) {
   setText(elements.temporalStatus, `Temporal: ${temporalConnected ? "Connected" : "Disconnected"}`);
 
   setText(elements.modelMode, `Model: ${humanize(state.model_mode, "unknown")}`);
+  // Light up the live model (OpenAI), otherwise it's the canned fixture backend.
+  elements.modelMode.classList.toggle("is-active", state.model_mode === "openai");
 
   const aggregate = state.workflow_mode === "session";
   setText(elements.workflowMode, `Workflow: ${aggregate ? "Aggregate" : "Per confession"}`);
+  elements.workflowMode.classList.toggle("is-active", aggregate);
   if (!elements.modeToggle.disabled) elements.modeToggle.checked = aggregate;
 
   const autonomous = state.agent_mode === "autonomous";
   setText(elements.agentMode, `Agent: ${autonomous ? "Autonomous" : "Linear"}`);
+  elements.agentMode.classList.toggle("is-active", autonomous);
   if (!elements.agentModeToggle.disabled) elements.agentModeToggle.checked = autonomous;
 
   elements.holdStatus.classList.toggle("is-hidden", !state.held);

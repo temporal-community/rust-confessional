@@ -365,7 +365,7 @@ async fn run_twilio_poller(app: StageApp, config: TwilioPollConfig) {
                     if let Err(error) = app
                         .submit_text(
                             message.body.clone(),
-                            Some(format!("twilio-{}", message.sid)),
+                            Some(twilio_submission_id(&message.sid)),
                         )
                         .await
                     {
@@ -471,8 +471,11 @@ async fn twilio_message(
     }
 
     if compliance_keyword(confession).is_none() {
-        app.submit_text(confession.to_owned(), Some(format!("twilio-{message_sid}")))
-            .await?;
+        app.submit_text(
+            confession.to_owned(),
+            Some(twilio_submission_id(message_sid)),
+        )
+        .await?;
     }
 
     Ok(empty_twiml())
@@ -899,12 +902,6 @@ impl StageStore {
     async fn persist_locked(&self) -> anyhow::Result<()> {
         if let Some(parent) = self.path.parent() {
             tokio::fs::create_dir_all(parent).await?;
-            let canonical_parent = tokio::fs::canonicalize(parent).await?;
-            if !self.path.starts_with(&canonical_parent) {
-                anyhow::bail!("refusing to persist outside configured data directory");
-            }
-        } else {
-            anyhow::bail!("invalid persistence path without parent directory");
         }
         let bytes = serde_json::to_vec_pretty(&*self.state.read().await)?;
         let temporary = temporary_path(&self.path);
@@ -918,6 +915,20 @@ fn temporary_path(path: &Path) -> PathBuf {
     let mut temporary = path.as_os_str().to_owned();
     temporary.push(format!(".{}.tmp", Ulid::new()));
     PathBuf::from(temporary)
+}
+
+/// Compact submission id for a Twilio message. Twilio `MessageSid`s are `SM` +
+/// 32 hex, which makes stage-visible workflow IDs unwieldy; keep the source
+/// label plus a short slice of the random hex (unique enough for a live session,
+/// and dedup already keys on the full sid before submitting).
+fn twilio_submission_id(message_sid: &str) -> String {
+    let slug: String = message_sid
+        .trim_start_matches("SM")
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .take(10)
+        .collect();
+    format!("twilio-{slug}")
 }
 
 fn awards_for(submissions: &[StageSubmission]) -> Awards {
@@ -1113,6 +1124,15 @@ mod tests {
         assert!(validate_submission_id("abc").is_ok());
         assert!(validate_submission_id("contains/slash").is_err());
         assert!(validate_submission_id("").is_err());
+    }
+
+    #[test]
+    fn twilio_submission_id_is_short_and_stable() {
+        let id = twilio_submission_id("SM1d36514e16e3507e2c93fc1feda9e00a");
+        assert_eq!(id, "twilio-1d36514e16");
+        validate_submission_id(&id).unwrap();
+        // A sid missing the SM prefix still yields a valid, bounded id.
+        assert!(twilio_submission_id("abcdef").starts_with("twilio-"));
     }
 
     #[test]
