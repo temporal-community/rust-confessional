@@ -6,8 +6,8 @@
     <meta name="color-scheme" content="light" />
     <meta name="theme-color" content="#ffffff" />
     <title>Rust Confessional</title>
-    <link rel="stylesheet" href="/styles.css?v=4" />
-    <script src="/app.js?v=4" defer></script>
+    <link rel="stylesheet" href="/styles.css?v=6" />
+    <script src="/app.js?v=6" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#confession-form">Skip to submission form</a>
@@ -34,6 +34,7 @@
           <span id="temporal-status" class="detail-pill is-unknown">Temporal: —</span>
           <span id="model-mode" class="detail-pill">Model: —</span>
           <span id="workflow-mode" class="detail-pill">Workflow: —</span>
+          <span id="agent-mode" class="detail-pill">Agent: —</span>
           <span id="hold-status" class="detail-pill is-hidden">Replies held</span>
         </div>
       </section>
@@ -66,6 +67,10 @@
             </button>
           </form>
           <p class="form-note">Ferris judges the decision, not the developer.</p>
+
+          <button id="demo-retry-button" class="demo-fill" type="button">
+            ⟳ Demo: load the API rate-limit confession
+          </button>
 
           <div class="sms-invite">
             <img
@@ -109,6 +114,17 @@
             </span>
             <span class="switch">
               <input id="mode-toggle" type="checkbox" role="switch" />
+              <span class="switch-track" aria-hidden="true"><span></span></span>
+            </span>
+          </label>
+
+          <label class="hold-control" for="agent-mode-toggle">
+            <span>
+              <strong>Autonomous agent</strong>
+              <small>Ferris decides each step and revises the draft (agentic loop). Off is the fixed linear pipeline. Applies to new confessions; no reset.</small>
+            </span>
+            <span class="switch">
+              <input id="agent-mode-toggle" type="checkbox" role="switch" />
               <span class="switch-track" aria-hidden="true"><span></span></span>
             </span>
           </label>

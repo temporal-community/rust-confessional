@@ -94,3 +94,28 @@ impl TwilioClient {
             .collect())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn messages_page_defaults_missing_body_and_direction() {
+        // `fetch_inbound` relies on these `#[serde(default)]` fields: the Twilio
+        // Messages API omits `body`/`direction` on some rows, and a missing field
+        // must deserialize to `None` rather than failing the whole page.
+        let page: MessagesPage = serde_json::from_str(
+            r#"{"messages":[
+                {"sid":"SM1","body":"hello","direction":"inbound"},
+                {"sid":"SM2"}
+            ]}"#,
+        )
+        .unwrap();
+
+        assert_eq!(page.messages.len(), 2);
+        assert_eq!(page.messages[0].body.as_deref(), Some("hello"));
+        assert_eq!(page.messages[0].direction.as_deref(), Some("inbound"));
+        assert_eq!(page.messages[1].body, None);
+        assert_eq!(page.messages[1].direction, None);
+    }
+}

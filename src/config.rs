@@ -87,8 +87,12 @@ impl StageConfig {
             bind_address: env_string("BIND_ADDRESS", "127.0.0.1:3000")
                 .parse()
                 .context("BIND_ADDRESS must be a socket address such as 127.0.0.1:3000")?,
-            data_path: env_string("STAGE_DATA_PATH", "data/stage.json").into(),
-            static_dir: env_string("STATIC_DIR", "static").into(),
+            // Fixed internal paths (resolved against the container WORKDIR `/app`,
+            // where the `stage-data` volume and baked-in `static/` live). Kept out
+            // of the environment so no untrusted value can reach a filesystem call
+            // — the data path is plumbing, not an operator knob.
+            data_path: PathBuf::from("data/stage.json"),
+            static_dir: PathBuf::from("static"),
             internal_token: env_string("STAGE_INTERNAL_TOKEN", "local-demo-token"),
             max_confession_chars: env_parse("MAX_CONFESSION_CHARS", 500usize)?,
             max_submissions_per_session: env_parse("MAX_SUBMISSIONS_PER_SESSION", 20usize)?,

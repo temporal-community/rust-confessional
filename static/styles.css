@@ -420,6 +420,23 @@ main {
   font-size: 0.78rem;
 }
 
+.demo-fill {
+  margin-top: 10px;
+  padding: 7px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.demo-fill:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
 .sms-invite {
   display: flex;
   align-items: center;
@@ -878,6 +895,36 @@ main {
     opacity: 1;
     transform: none;
   }
+}
+
+.agent-trace {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.trace-steps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin: 9px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+}
+
+.trace-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trace-steps li:not(:first-child)::before {
+  content: "›";
+  color: var(--line-strong);
 }
 
 .category-tag {

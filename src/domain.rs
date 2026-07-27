@@ -40,6 +40,67 @@ impl Category {
     }
 }
 
+/// Which agent shape a confession's Workflow runs: the fixed linear pipeline or
+/// the autonomous decide/act loop. Defaults to `Linear` so existing submissions
+/// (and replayed histories missing the field) keep the original behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentMode {
+    #[default]
+    Linear,
+    Autonomous,
+}
+
+/// A capability the autonomous loop can invoke as a research step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Skill {
+    RemedyLookup,
+    DocLookup,
+    SelfCritique,
+}
+
+/// One decision the autonomous agent makes on each turn of its loop.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum AgentStep {
+    Lookup { skill: Skill, query: String },
+    Compose,
+    Revise { reason: String },
+    Finish,
+}
+
+impl AgentStep {
+    /// A short, human-readable label for the dashboard's autonomous step trace.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Lookup {
+                skill: Skill::RemedyLookup,
+                ..
+            } => "Looked up an approved remedy",
+            Self::Lookup {
+                skill: Skill::DocLookup,
+                ..
+            } => "Consulted the docs",
+            Self::Lookup {
+                skill: Skill::SelfCritique,
+                ..
+            } => "Self-critiqued the draft",
+            Self::Compose => "Composed a draft",
+            Self::Revise { .. } => "Revised the draft",
+            Self::Finish => "Finished",
+        }
+    }
+}
+
+/// A result the agent gathered from running a `Skill`, folded into later steps.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Finding {
+    pub skill: Skill,
+    pub summary: String,
+    pub detail: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubmissionInput {
     pub id: String,
@@ -47,6 +108,8 @@ pub struct SubmissionInput {
     pub text: String,
     pub created_at: DateTime<Utc>,
     pub hold_before_reply: bool,
+    #[serde(default)]
+    pub agent_mode: AgentMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -77,6 +140,11 @@ pub struct Judgment {
     pub category: Category,
     pub judgment: String,
     pub severity: u8,
+    /// A very short phrase (<=48 chars, single line) justifying `severity`,
+    /// e.g. "prod-facing unsafe" or "cosmetic nit". The model may revise it as
+    /// findings accumulate.
+    #[serde(default)]
+    pub severity_reason: String,
     pub prescription: String,
     pub suggested_tools: Vec<String>,
     pub sentence: String,
@@ -158,6 +226,18 @@ impl Judgment {
             "penance_line must be a single line"
         );
         anyhow::ensure!(
+            !self.severity_reason.trim().is_empty(),
+            "severity_reason cannot be empty"
+        );
+        anyhow::ensure!(
+            self.severity_reason.chars().count() <= 48,
+            "severity_reason is too long"
+        );
+        anyhow::ensure!(
+            !self.severity_reason.contains(['\n', '\r']),
+            "severity_reason must be a single line"
+        );
+        anyhow::ensure!(
             (1..=5).contains(&self.suggested_tools.len()),
             "suggested_tools must contain between one and five items"
         );
@@ -213,6 +293,10 @@ pub struct StageSubmission {
     pub award_scores: Option<AwardScores>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Human-readable trace of the autonomous loop's steps. Empty (and omitted
+    /// from the projection) for linear confessions, so their rows stay identical.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_steps: Vec<String>,
 }
 
 impl StageSubmission {
@@ -236,6 +320,7 @@ impl StageSubmission {
             penance_reps: None,
             award_scores: None,
             error: None,
+            agent_steps: Vec::new(),
         }
     }
 }
@@ -249,6 +334,9 @@ pub struct StageUpdate {
     pub judgment: Option<Judgment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// The running list of autonomous step labels; empty for linear paths.
+    #[serde(default)]
+    pub agent_steps: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -258,6 +346,10 @@ pub struct WorkflowSnapshot {
     pub plan: Option<AgentPlan>,
     pub judgment: Option<Judgment>,
     pub released: bool,
+    #[serde(default)]
+    pub findings: Vec<Finding>,
+    #[serde(default)]
+    pub steps: Vec<AgentStep>,
 }
 
 /// One confession's state as held inside the aggregate `SessionWorkflow`.
@@ -270,6 +362,10 @@ pub struct SessionConfession {
     /// Per-confession release flag, mirroring `ConfessionWorkflow`: it starts as
     /// `!hold_before_reply` and the release Signal frees the held ones.
     pub released: bool,
+    #[serde(default)]
+    pub findings: Vec<Finding>,
+    #[serde(default)]
+    pub steps: Vec<AgentStep>,
 }
 
 /// The aggregate `SessionWorkflow`'s durable state, returned by its query. This
@@ -311,6 +407,7 @@ pub struct PublicStageState {
     pub held: bool,
     pub show_raw_confessions: bool,
     pub workflow_mode: WorkflowMode,
+    pub agent_mode: AgentMode,
     pub submissions: Vec<StageSubmission>,
     pub awards: Awards,
 }
@@ -328,14 +425,73 @@ mod tests {
     }
 
     #[test]
+    fn agent_step_labels_are_stable() {
+        // The dashboard renders these labels as the autonomous step trace, so
+        // pin every variant's wording.
+        assert_eq!(
+            AgentStep::Lookup {
+                skill: Skill::RemedyLookup,
+                query: String::new(),
+            }
+            .label(),
+            "Looked up an approved remedy"
+        );
+        assert_eq!(
+            AgentStep::Lookup {
+                skill: Skill::DocLookup,
+                query: String::new(),
+            }
+            .label(),
+            "Consulted the docs"
+        );
+        assert_eq!(
+            AgentStep::Lookup {
+                skill: Skill::SelfCritique,
+                query: String::new(),
+            }
+            .label(),
+            "Self-critiqued the draft"
+        );
+        assert_eq!(AgentStep::Compose.label(), "Composed a draft");
+        assert_eq!(
+            AgentStep::Revise {
+                reason: String::new(),
+            }
+            .label(),
+            "Revised the draft"
+        );
+        assert_eq!(AgentStep::Finish.label(), "Finished");
+    }
+
+    #[test]
     fn judgment_rejects_invalid_severity() {
         let judgment = Judgment {
             display_confession: "I trusted an undocumented invariant.".into(),
             category: Category::Other,
             judgment: "Questionable.".into(),
             severity: 9,
+            severity_reason: "prod-facing unsafe".into(),
             prescription: "Use a type.".into(),
             suggested_tools: vec![],
+            sentence: "Write a test.".into(),
+            penance: "Write a loop that prints foo then bar.".into(),
+            penance_line: "foo bar".into(),
+            award_scores: AwardScores::default(),
+        };
+        assert!(judgment.validate().is_err());
+    }
+
+    #[test]
+    fn judgment_rejects_empty_severity_reason() {
+        // Everything else is valid, so this isolates the severity_reason check.
+        let judgment = Judgment {
+            display_confession: "I trusted an undocumented invariant.".into(),
+            category: Category::Other,
+            judgment: "Questionable.".into(),
+            severity: 3,
+            severity_reason: String::new(),
+            prescription: "Use a type.".into(),
+            suggested_tools: vec!["clippy".into()],
             sentence: "Write a test.".into(),
             penance: "Write a loop that prints foo then bar.".into(),
             penance_line: "foo bar".into(),

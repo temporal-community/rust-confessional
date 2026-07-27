@@ -31,8 +31,8 @@ use ulid::Ulid;
 use crate::{
     config::{StageConfig, TwilioPollConfig},
     domain::{
-        Awards, PublicStageState, StageSubmission, StageUpdate, SubmissionInput, SubmissionStatus,
-        WorkflowMode,
+        AgentMode, Awards, PublicStageState, StageSubmission, StageUpdate, SubmissionInput,
+        SubmissionStatus, WorkflowMode,
     },
     temporal,
     twilio::{compliance_keyword, form_field, parse_form_body, verify_twilio_signature},
@@ -76,6 +76,7 @@ impl StageApp {
             .route("/webhooks/twilio/messages", post(twilio_message))
             .route("/api/demo/hold", post(set_hold))
             .route("/api/demo/mode", post(set_workflow_mode))
+            .route("/api/demo/agent-mode", post(set_agent_mode))
             .route("/api/demo/seed", post(seed_confessions))
             .route("/api/demo/reset", post(reset_demo))
             .route("/api/internal/update", post(internal_update))
@@ -122,6 +123,9 @@ impl StageApp {
 
         let (session_id, held) = self.store.session_and_hold().await;
         let mode = self.store.mode().await;
+        // Each confession captures the currently selected agent mode; linear and
+        // autonomous confessions coexist in one session (no reset on change).
+        let agent_mode = self.store.agent_mode().await;
         let id = requested_id.unwrap_or_else(|| Ulid::new().to_string());
         validate_submission_id(&id)?;
         let mut input = SubmissionInput {
@@ -130,9 +134,10 @@ impl StageApp {
             text,
             created_at: Utc::now(),
             hold_before_reply: held,
+            agent_mode,
         };
         let workflow_id = match mode {
-            WorkflowMode::PerConfession => temporal::workflow_id(&input.session_id, &input.id),
+            WorkflowMode::PerConfession => temporal::workflow_id(&input.id),
             WorkflowMode::Session => temporal::session_workflow_id(&input.session_id),
         };
         let mut staged = StageSubmission::received(&input, workflow_id.clone());
@@ -396,6 +401,7 @@ async fn get_state(State(app): State<StageApp>) -> Json<PublicStageState> {
         held: stored.held,
         show_raw_confessions: app.config.show_raw_confessions,
         workflow_mode: stored.workflow_mode,
+        agent_mode: stored.agent_mode,
         submissions: stored.submissions,
         awards,
     })
@@ -550,6 +556,26 @@ async fn set_workflow_mode(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(Debug, Deserialize)]
+struct AgentModeRequest {
+    agent_mode: AgentMode,
+}
+
+async fn set_agent_mode(
+    State(app): State<StageApp>,
+    Json(request): Json<AgentModeRequest>,
+) -> Result<StatusCode, ApiError> {
+    // Unlike the per/aggregate workflow mode, the agent mode does not reset the
+    // session: each confession carries its own `agent_mode`, so linear and
+    // autonomous confessions can coexist in one running session.
+    let _admission = app.admission.lock().await;
+    app.store
+        .set_agent_mode(request.agent_mode)
+        .await
+        .map_err(ApiError::internal)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn reset_demo(State(app): State<StageApp>) -> Result<StatusCode, ApiError> {
     let _admission = app.admission.lock().await;
     app.release_current().await?;
@@ -672,6 +698,8 @@ struct StoredStageState {
     held: bool,
     #[serde(default)]
     workflow_mode: WorkflowMode,
+    #[serde(default)]
+    agent_mode: AgentMode,
     submissions: Vec<StageSubmission>,
 }
 
@@ -681,6 +709,10 @@ impl Default for StoredStageState {
             session_id: Ulid::new().to_string(),
             held: true,
             workflow_mode: WorkflowMode::default(),
+            // The demo defaults to the autonomous agent loop. `AgentMode::default()`
+            // stays `Linear` for SubmissionInput replay safety; only the fresh store
+            // state opts into autonomous so a clean session starts in the loop.
+            agent_mode: AgentMode::Autonomous,
             submissions: Vec::new(),
         }
     }
@@ -694,6 +726,7 @@ struct StageStore {
 
 impl StageStore {
     async fn load(path: PathBuf) -> anyhow::Result<Self> {
+        let path = validate_store_path_within_cwd(&path)?;
         let state = match tokio::fs::read(&path).await {
             Ok(bytes) => serde_json::from_slice(&bytes)?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -721,6 +754,10 @@ impl StageStore {
         self.state.read().await.workflow_mode
     }
 
+    async fn agent_mode(&self) -> AgentMode {
+        self.state.read().await.agent_mode
+    }
+
     async fn session_id(&self) -> String {
         self.state.read().await.session_id.clone()
     }
@@ -728,6 +765,12 @@ impl StageStore {
     async fn set_mode(&self, mode: WorkflowMode) -> anyhow::Result<()> {
         let _guard = self.persistence.lock().await;
         self.state.write().await.workflow_mode = mode;
+        self.persist_locked().await
+    }
+
+    async fn set_agent_mode(&self, agent_mode: AgentMode) -> anyhow::Result<()> {
+        let _guard = self.persistence.lock().await;
+        self.state.write().await.agent_mode = agent_mode;
         self.persist_locked().await
     }
 
@@ -790,13 +833,27 @@ impl StageStore {
         {
             submission.status = update.status;
             submission.error = update.error;
+            // Replace the trace only with the latest non-empty list, so the plain
+            // (empty) reports of the delivery tail never clear a built-up trace.
+            if !update.agent_steps.is_empty() {
+                submission.agent_steps = update.agent_steps;
+            }
             if let Some(judgment) = update.judgment {
                 if replace_with_safe_display {
                     submission.text = judgment.display_confession;
                 }
                 submission.category = Some(judgment.category);
                 submission.judgment = Some(judgment.judgment);
-                submission.severity = Some(format!("Ferris Level {}", judgment.severity));
+                submission.severity = Some(if judgment.severity_reason.trim().is_empty() {
+                    // Older judgments (replayed before severity_reason existed) have
+                    // no reason; render the bare level without a dangling dash.
+                    format!("Ferris Level {}/5", judgment.severity)
+                } else {
+                    format!(
+                        "Ferris Level {}/5 — {}",
+                        judgment.severity, judgment.severity_reason
+                    )
+                });
                 submission.prescription = Some(format!(
                     "{} Suggested tools: {}.",
                     judgment.prescription,
@@ -844,6 +901,12 @@ impl StageStore {
     async fn persist_locked(&self) -> anyhow::Result<()> {
         if let Some(parent) = self.path.parent() {
             tokio::fs::create_dir_all(parent).await?;
+            let canonical_parent = tokio::fs::canonicalize(parent).await?;
+            if !self.path.starts_with(&canonical_parent) {
+                anyhow::bail!("refusing to persist outside configured data directory");
+            }
+        } else {
+            anyhow::bail!("invalid persistence path without parent directory");
         }
         let bytes = serde_json::to_vec_pretty(&*self.state.read().await)?;
         let temporary = temporary_path(&self.path);
@@ -851,6 +914,34 @@ impl StageStore {
         tokio::fs::rename(temporary, &self.path).await?;
         Ok(())
     }
+}
+
+fn validate_store_path_within_cwd(path: &Path) -> anyhow::Result<PathBuf> {
+    let base = std::env::current_dir()?.canonicalize()?;
+    let candidate = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base.join(path)
+    };
+
+    let normalized = if candidate.exists() {
+        candidate.canonicalize()?
+    } else {
+        let parent = candidate
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("invalid store path"))?
+            .canonicalize()?;
+        let file_name = candidate
+            .file_name()
+            .ok_or_else(|| anyhow::anyhow!("invalid store path"))?;
+        parent.join(file_name)
+    };
+
+    if !normalized.starts_with(&base) {
+        anyhow::bail!("store path escapes allowed base directory");
+    }
+
+    Ok(normalized)
 }
 
 fn temporary_path(path: &Path) -> PathBuf {
@@ -995,6 +1086,7 @@ mod tests {
             text: "one".into(),
             created_at: Utc::now(),
             hold_before_reply: true,
+            agent_mode: AgentMode::default(),
         };
         let mut first = StageSubmission::received(&input, "wf-first".into());
         first.status = SubmissionStatus::Sent;
@@ -1021,6 +1113,7 @@ mod tests {
             text: "one".into(),
             created_at: Utc::now(),
             hold_before_reply: true,
+            agent_mode: AgentMode::default(),
         };
         let first = StageSubmission::received(&input, "wf-first".into());
         let (stored, inserted) = store.insert_if_absent(first.clone(), 1).await.unwrap();
@@ -1050,6 +1143,17 @@ mod tests {
         assert!(validate_submission_id("abc").is_ok());
         assert!(validate_submission_id("contains/slash").is_err());
         assert!(validate_submission_id("").is_err());
+    }
+
+    #[test]
+    fn submission_ids_enforce_the_length_and_charset_boundary() {
+        // Dash and underscore are the only non-alphanumeric characters allowed;
+        // the length cap is an inclusive 128 bytes.
+        validate_submission_id("web-01ABC_def").unwrap();
+        validate_submission_id(&"a".repeat(128)).unwrap();
+        assert!(validate_submission_id(&"a".repeat(129)).is_err());
+        assert!(validate_submission_id("has space").is_err());
+        assert!(validate_submission_id("emoji-\u{1f600}").is_err());
     }
 
     #[tokio::test]
