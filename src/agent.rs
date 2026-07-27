@@ -1317,8 +1317,7 @@ mod tests {
         assert_ne!(base.prescription, with_doc.prescription);
         assert!(
             with_doc.prescription.contains("Docs:"),
-            "prescription should carry the folded doc lookup: {}",
-            with_doc.prescription
+            "prescription should carry the folded doc lookup"
         );
         // The DocLookup fold touches only the prescription, not the sentence.
         assert_eq!(base.sentence, with_doc.sentence);
