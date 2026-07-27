@@ -294,7 +294,6 @@ impl AgentBackend for OpenAiBackend {
         // validation and dropping the confession on stage.
         judgment.display_confession = sanitize_stage_text(&judgment.display_confession, 180);
         judgment.judgment = sanitize_stage_text(&judgment.judgment, 280);
-        judgment.sentence = sanitize_stage_text(&judgment.sentence, 280);
         judgment.penance = sanitize_stage_text(&judgment.penance, 280);
         judgment.penance_line = sanitize_stage_text(&judgment.penance_line, 48);
         // The model both rates and justifies; sanitize its phrase like the others.
@@ -479,14 +478,9 @@ impl AgentBackend for FixtureBackend {
         // while every field stays within its cap and `validate()` keeps passing.
         let mut prescription = remedy.guidance;
         let mut suggested_tools = remedy.suggested_tools;
-        let mut sentence = fixture_sentence(plan.category).to_owned();
         for finding in findings {
             match finding.skill {
                 Skill::SelfCritique => {
-                    sentence = sanitize_stage_text(
-                        &format!("{sentence} (revised: {})", finding.summary),
-                        280,
-                    );
                     // A revise re-rates: bump the Ferris Level (capped) and
                     // re-justify it, so a revised draft's severity visibly shifts.
                     severity = (severity + 1).min(5);
@@ -522,7 +516,6 @@ impl AgentBackend for FixtureBackend {
             severity_reason,
             prescription,
             suggested_tools,
-            sentence,
             penance: penance.to_owned(),
             penance_line: penance_line.to_owned(),
             award_scores: AwardScores {
@@ -723,21 +716,6 @@ fn fixture_judgment(category: Category) -> &'static str {
     }
 }
 
-fn fixture_sentence(category: Category) -> &'static str {
-    match category {
-        Category::Concurrency => "Delete one sleep and replace it with a channel before lunch.",
-        Category::Ownership => "Remove one ceremonial clone and write down who owns the value.",
-        Category::ErrorHandling => {
-            "Replace one hopeful unwrap with an error your future self can diagnose."
-        }
-        Category::Unsafe => "Write the SAFETY comment you wish had existed yesterday.",
-        Category::Automation => "Give the company-running script a type, a test, and a README.",
-        Category::Data => "Introduce one newtype and become briefly unbearable about invariants.",
-        Category::Testing => "Capture this exact confession as a regression test.",
-        Category::Other => "Turn one comment that says 'must' into a type that says 'cannot'.",
-    }
-}
-
 fn fixture_penance(category: Category) -> (&'static str, &'static str) {
     match category {
         Category::Concurrency => (
@@ -930,7 +908,6 @@ fn judgment_schema() -> Value {
                 "type": "array",
                 "items": { "type": "string", "maxLength": 64 }
             },
-            "sentence": { "type": "string", "maxLength": 280 },
             "penance": { "type": "string", "maxLength": 280 },
             "penance_line": { "type": "string", "maxLength": 48 },
             "award_scores": {
@@ -952,7 +929,6 @@ fn judgment_schema() -> Value {
             "severity_reason",
             "prescription",
             "suggested_tools",
-            "sentence",
             "penance",
             "penance_line",
             "award_scores"
@@ -1054,7 +1030,17 @@ mod tests {
             .unwrap();
         revised.validate().unwrap();
 
-        assert_ne!(first.sentence, revised.sentence);
+        // The SelfCritique fold re-rates the draft: a revise must move the Ferris
+        // Level or its justification (here the severity is already capped at 5, so
+        // the reason is what shifts), proving the whole Judgment changed.
+        assert!(
+            first.severity != revised.severity || first.severity_reason != revised.severity_reason,
+            "a revise should change severity or its reason: {}/{:?} -> {}/{:?}",
+            first.severity,
+            first.severity_reason,
+            revised.severity,
+            revised.severity_reason,
+        );
         assert_ne!(first, revised);
     }
 
@@ -1328,7 +1314,7 @@ mod tests {
     #[tokio::test]
     async fn compose_folds_a_doc_lookup_into_the_prescription() {
         // Complements `revise_with_findings_changes_the_draft` (which exercises
-        // the SelfCritique -> sentence fold) by locking the distinct DocLookup ->
+        // the SelfCritique -> severity fold) by locking the distinct DocLookup ->
         // prescription branch of `compose`.
         let backend = FixtureBackend;
         let input = submission("I used unsafe because I was tired.");
@@ -1351,8 +1337,9 @@ mod tests {
             with_doc.prescription.contains("Docs:"),
             "prescription should carry the folded doc lookup"
         );
-        // The DocLookup fold touches only the prescription, not the sentence.
-        assert_eq!(base.sentence, with_doc.sentence);
+        // The DocLookup fold touches only the prescription, not the severity.
+        assert_eq!(base.severity, with_doc.severity);
+        assert_eq!(base.severity_reason, with_doc.severity_reason);
     }
 
     #[tokio::test]

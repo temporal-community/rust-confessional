@@ -254,7 +254,6 @@ function submissionCard(submission, isNew) {
     submission.judgment,
     submission.severity,
     submission.prescription,
-    submission.sentence,
     submission.error,
   ].some((value) => safeText(value).trim());
 
@@ -265,7 +264,6 @@ function submissionCard(submission, isNew) {
     appendResultRow(result, "Category", submission.category, "category-tag");
     appendResultRow(result, "Severity", submission.severity);
     appendResultRow(result, "Rust can fix that", submission.prescription);
-    appendResultRow(result, "Sentence", submission.sentence);
     appendResultRow(result, "Error", submission.error, "error");
     item.append(result);
   }
