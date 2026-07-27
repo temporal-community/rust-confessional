@@ -215,10 +215,10 @@ already failed after exhausting its retries.
 Each confession runs one of two agent shapes, chosen by the dashboard's
 Linear ↔ Autonomous toggle:
 
-- **Linear** (default) is the fixed pipeline: plan, look up a remedy, compose.
-- **Autonomous** hands the agent a bounded decide/act loop. On each turn it
-  picks one step — run a skill, compose a draft, revise it once, or finish —
-  and the dashboard renders the step trace.
+- **Linear** is the fixed pipeline: plan, look up a remedy, compose.
+- **Autonomous** (the demo default) hands the agent a bounded decide/act loop.
+  On each turn it picks one step — run a skill, compose a draft, revise it once,
+  or finish — and the dashboard renders the step trace.
 
 Three skills are approved, and only these three:
 
@@ -235,6 +235,12 @@ strict JSON schema and runs the real self-critique) and deterministic in fixture
 mode (a content-aware policy keyed on the confession's category). Either way the
 loop is hard-capped on steps, always converges on `finish`, and yields a
 validated judgment.
+
+Part of that judgment is the **Ferris Level** — a 1–5 severity plus a very short
+justification (for example "prod-facing unsafe" or "cosmetic nit"). In OpenAI
+mode the model authors both the rating and the reason, and because a revise
+re-composes with the findings gathered so far, it can re-rate and re-justify as
+it learns more. The dashboard shows it as `Ferris Level N/5 — <reason>`.
 
 ## Optional inbound SMS (Twilio)
 
