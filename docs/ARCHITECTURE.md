@@ -194,7 +194,7 @@ loop:
 Submission
   -> plan: category, lookup decision, search key
   -> optional approved remedy lookup
-  -> compose: judgment, severity, prescription, tools, sentence, penance, award scores
+  -> compose: judgment, severity, prescription, tools, penance, award scores
   -> controlled release checkpoint
   -> delivery
 ```
