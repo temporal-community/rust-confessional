@@ -899,12 +899,6 @@ impl StageStore {
     async fn persist_locked(&self) -> anyhow::Result<()> {
         if let Some(parent) = self.path.parent() {
             tokio::fs::create_dir_all(parent).await?;
-            let canonical_parent = tokio::fs::canonicalize(parent).await?;
-            if !self.path.starts_with(&canonical_parent) {
-                anyhow::bail!("refusing to persist outside configured data directory");
-            }
-        } else {
-            anyhow::bail!("invalid persistence path without parent directory");
         }
         let bytes = serde_json::to_vec_pretty(&*self.state.read().await)?;
         let temporary = temporary_path(&self.path);
