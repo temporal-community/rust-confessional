@@ -26,7 +26,6 @@ services:
       TEMPORAL_ADDRESS: http://temporal:7233
       TEMPORAL_NAMESPACE: default
       TEMPORAL_TASK_QUEUE: rust-confessional
-      STAGE_DATA_PATH: /app/data/stage.json
       STAGE_INTERNAL_TOKEN: demo-internal-token
       MAX_SUBMISSIONS_PER_SESSION: ${MAX_SUBMISSIONS_PER_SESSION:-20}
       SHOW_RAW_CONFESSIONS: ${SHOW_RAW_CONFESSIONS:-false}
