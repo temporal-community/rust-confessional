@@ -843,7 +843,16 @@ impl StageStore {
                 }
                 submission.category = Some(judgment.category);
                 submission.judgment = Some(judgment.judgment);
-                submission.severity = Some(format!("Ferris Level {}", judgment.severity));
+                submission.severity = Some(if judgment.severity_reason.trim().is_empty() {
+                    // Older judgments (replayed before severity_reason existed) have
+                    // no reason; render the bare level without a dangling dash.
+                    format!("Ferris Level {}/5", judgment.severity)
+                } else {
+                    format!(
+                        "Ferris Level {}/5 — {}",
+                        judgment.severity, judgment.severity_reason
+                    )
+                });
                 submission.prescription = Some(format!(
                     "{} Suggested tools: {}.",
                     judgment.prescription,

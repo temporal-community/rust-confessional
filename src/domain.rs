@@ -140,6 +140,11 @@ pub struct Judgment {
     pub category: Category,
     pub judgment: String,
     pub severity: u8,
+    /// A very short phrase (<=48 chars, single line) justifying `severity`,
+    /// e.g. "prod-facing unsafe" or "cosmetic nit". The model may revise it as
+    /// findings accumulate.
+    #[serde(default)]
+    pub severity_reason: String,
     pub prescription: String,
     pub suggested_tools: Vec<String>,
     pub sentence: String,
@@ -219,6 +224,18 @@ impl Judgment {
         anyhow::ensure!(
             !self.penance_line.contains(['\n', '\r']),
             "penance_line must be a single line"
+        );
+        anyhow::ensure!(
+            !self.severity_reason.trim().is_empty(),
+            "severity_reason cannot be empty"
+        );
+        anyhow::ensure!(
+            self.severity_reason.chars().count() <= 48,
+            "severity_reason is too long"
+        );
+        anyhow::ensure!(
+            !self.severity_reason.contains(['\n', '\r']),
+            "severity_reason must be a single line"
         );
         anyhow::ensure!(
             (1..=5).contains(&self.suggested_tools.len()),
@@ -453,8 +470,28 @@ mod tests {
             category: Category::Other,
             judgment: "Questionable.".into(),
             severity: 9,
+            severity_reason: "prod-facing unsafe".into(),
             prescription: "Use a type.".into(),
             suggested_tools: vec![],
+            sentence: "Write a test.".into(),
+            penance: "Write a loop that prints foo then bar.".into(),
+            penance_line: "foo bar".into(),
+            award_scores: AwardScores::default(),
+        };
+        assert!(judgment.validate().is_err());
+    }
+
+    #[test]
+    fn judgment_rejects_empty_severity_reason() {
+        // Everything else is valid, so this isolates the severity_reason check.
+        let judgment = Judgment {
+            display_confession: "I trusted an undocumented invariant.".into(),
+            category: Category::Other,
+            judgment: "Questionable.".into(),
+            severity: 3,
+            severity_reason: String::new(),
+            prescription: "Use a type.".into(),
+            suggested_tools: vec!["clippy".into()],
             sentence: "Write a test.".into(),
             penance: "Write a loop that prints foo then bar.".into(),
             penance_line: "foo bar".into(),
