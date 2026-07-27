@@ -147,7 +147,7 @@ async fn run_linear(
         .start_activity(
             ConfessionalActivities::plan,
             submission.clone(),
-            activity_options(20, 75, 3),
+            durable_activity_options(30),
         )
         .await
     {
@@ -166,7 +166,7 @@ async fn run_linear(
             .start_activity(
                 ConfessionalActivities::lookup_remedy,
                 LookupInput { plan: plan.clone() },
-                activity_options(5, 15, 3),
+                durable_activity_options(30),
             )
             .await
         {
@@ -192,7 +192,7 @@ async fn run_linear(
                 // The linear path composes once with no accumulated findings.
                 findings: Vec::new(),
             },
-            activity_options(20, 75, 3),
+            durable_activity_options(30),
         )
         .await
     {
@@ -217,7 +217,7 @@ async fn run_autonomous(
         .start_activity(
             ConfessionalActivities::plan,
             submission.clone(),
-            activity_options(20, 75, 3),
+            durable_activity_options(30),
         )
         .await
     {
@@ -251,7 +251,7 @@ async fn run_autonomous(
                     revised,
                     iteration,
                 },
-                activity_options(20, 75, 3),
+                durable_activity_options(30),
             )
             .await
         {
@@ -261,6 +261,8 @@ async fn run_autonomous(
                 return Err(error.into());
             }
         };
+        // Force progress if the model re-picks a skill already gathered.
+        let step = guard_repeat_skill(step, &findings, has_draft);
         ctx.state_mut(|state| state.steps.push(step.clone()));
 
         match step {
@@ -280,7 +282,7 @@ async fn run_autonomous(
                             has_draft,
                             iteration,
                         },
-                        activity_options(20, 75, 3),
+                        durable_activity_options(30),
                     )
                     .await
                 {
@@ -362,7 +364,7 @@ async fn compose_draft(
                 remedy,
                 findings,
             },
-            activity_options(20, 75, 3),
+            durable_activity_options(30),
         )
         .await
     {
@@ -390,6 +392,32 @@ fn first_remedy(findings: &[Finding], category: Category) -> Option<Remedy> {
                 .map(ToOwned::to_owned)
                 .collect(),
         })
+}
+
+/// Force loop progress when the model repeats itself: if `decide_next_step`
+/// re-picks a `Lookup` whose skill is already in the accumulated findings, the
+/// loop would stall on redundant lookups (observed: three identical
+/// remedy_lookup findings, never composed). Replace that redundant lookup with
+/// the next real step — `Compose` when there is no draft yet, `Finish` once a
+/// draft exists — so the loop always converges. Every other step passes through.
+fn guard_repeat_skill(step: AgentStep, findings: &[Finding], has_draft: bool) -> AgentStep {
+    // Allow a skill to run up to twice (a little variety — e.g. a second, fresh
+    // self-critique), then force progress so the loop can't spin on one skill.
+    const MAX_SKILL_USES: usize = 2;
+    if let AgentStep::Lookup { skill, .. } = &step {
+        let uses = findings
+            .iter()
+            .filter(|finding| finding.skill == *skill)
+            .count();
+        if uses >= MAX_SKILL_USES {
+            return if has_draft {
+                AgentStep::Finish
+            } else {
+                AgentStep::Compose
+            };
+        }
+    }
+    step
 }
 
 /// The aggregate demo variant: a single long-lived Workflow for an entire
@@ -541,7 +569,7 @@ async fn compose_confession_linear(
         .start_activity(
             ConfessionalActivities::plan,
             submission.clone(),
-            activity_options(20, 75, 3),
+            durable_activity_options(30),
         )
         .await
     {
@@ -556,7 +584,7 @@ async fn compose_confession_linear(
             .start_activity(
                 ConfessionalActivities::lookup_remedy,
                 LookupInput { plan: plan.clone() },
-                activity_options(5, 15, 3),
+                durable_activity_options(30),
             )
             .await
         {
@@ -578,7 +606,7 @@ async fn compose_confession_linear(
                 // The linear path composes once with no accumulated findings.
                 findings: Vec::new(),
             },
-            activity_options(20, 75, 3),
+            durable_activity_options(30),
         )
         .await
     {
@@ -613,7 +641,7 @@ async fn compose_confession_autonomous(
         .start_activity(
             ConfessionalActivities::plan,
             submission.clone(),
-            activity_options(20, 75, 3),
+            durable_activity_options(30),
         )
         .await
     {
@@ -647,13 +675,15 @@ async fn compose_confession_autonomous(
                     revised,
                     iteration,
                 },
-                activity_options(20, 75, 3),
+                durable_activity_options(30),
             )
             .await
         {
             Ok(step) => step,
             Err(_) => return fail_item(ctx, &submission).await,
         };
+        // Force progress if the model re-picks a skill already gathered.
+        let step = guard_repeat_skill(step, &findings, has_draft);
         update_item(ctx, &id, |item| item.steps.push(step.clone()));
 
         match step {
@@ -683,7 +713,7 @@ async fn compose_confession_autonomous(
                             has_draft,
                             iteration,
                         },
-                        activity_options(20, 75, 3),
+                        durable_activity_options(30),
                     )
                     .await
                 {
@@ -760,7 +790,7 @@ async fn compose_session_draft(
                 remedy,
                 findings,
             },
-            activity_options(20, 75, 3),
+            durable_activity_options(30),
         )
         .await
     {
@@ -953,6 +983,24 @@ fn activity_options(
     })
     .retry_policy(RetryPolicy {
         maximum_attempts,
+        ..Default::default()
+    })
+    .build()
+}
+
+/// Retry policy for model-backed activities so they survive a worker outage
+/// (partition/kill): a bounded per-attempt timeout, no total-time cap, and
+/// unlimited retries, so transient failures (lost network, rate limits) keep
+/// retrying with backoff and the loop resumes exactly where it left off.
+fn durable_activity_options(start_to_close: u64) -> ActivityOptions {
+    // `StartToClose` bounds a single attempt only, with no schedule_to_close
+    // total cap, so retries are never cut off by an aggregate deadline.
+    ActivityOptions::with_close_timeouts(ActivityCloseTimeouts::StartToClose(Duration::from_secs(
+        start_to_close,
+    )))
+    .retry_policy(RetryPolicy {
+        // 0 = unlimited attempts in Temporal, with default exponential backoff.
+        maximum_attempts: 0,
         ..Default::default()
     })
     .build()

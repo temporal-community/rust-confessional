@@ -229,8 +229,9 @@ Three skills are approved, and only these three:
 
 - **Remedy lookup** returns guidance from the bundled Rust remedy catalog. The
   catalog, not the model, owns remedies, so suggested tools stay on-brand.
-- **Self-critique** reviews the working draft and names one concrete
-  improvement, which the next compose folds in.
+- **Self-critique** reviews the work so far — the confession and the findings
+  already gathered — and names one concrete improvement, which the next compose
+  folds in.
 - **Doc lookup** is a *simulated* web search: it returns a canned,
   realistic-looking result and makes **no live network call**, so the beat is
   deterministic and offline-safe in both backends.
@@ -238,8 +239,9 @@ Three skills are approved, and only these three:
 The loop is model-driven in OpenAI mode (the model chooses each step against a
 strict JSON schema and runs the real self-critique) and deterministic in fixture
 mode (a content-aware policy keyed on the confession's category). Either way the
-loop is hard-capped on steps, always converges on `finish`, and yields a
-validated judgment.
+loop is hard-capped on steps and always terminates with a validated judgment —
+on an explicit `finish` in fixture mode, or, if OpenAI reaches the cap first, on
+a fallback compose.
 
 Part of that judgment is the **Ferris Level** — a 1–5 severity plus a very short
 justification (for example "prod-facing unsafe" or "cosmetic nit"). In OpenAI
@@ -248,6 +250,11 @@ re-composes with the findings gathered so far, it can re-rate and re-justify as
 it learns more. The dashboard shows it as `Ferris Level N/5 — <reason>`.
 
 ## Optional inbound SMS (Twilio)
+
+Both paths below need **your own Twilio account and a Twilio phone number** (a
+paid number — inbound SMS is billed per message); plug your own credentials into
+the variables shown. The demo ships with no number of its own, and the committed
+QR points at a placeholder.
 
 The webhook path is disabled unless all three variables below are set.
 `TWILIO_WEBHOOK_URL` must be the exact external URL Twilio invokes (scheme, host,
@@ -357,8 +364,11 @@ make heal-worker
 `partition-worker` disconnects the Worker container from the Compose network, so
 the process keeps running but cannot reach Temporal (or Stage). Workflows make no
 progress and lose nothing; `heal-worker` reconnects it and Temporal redelivers
-the pending Tasks so execution resumes. This is distinct from a crash: the
-process never died, it was only isolated.
+the pending Tasks so execution resumes. If a model call is in flight when the
+partition hits (OpenAI mode), that Activity times out and simply retries — the
+model-backed Activities use unlimited attempts with no total-time cap — so the
+loop rides through the outage instead of failing. This is distinct from a crash:
+the process never died, it was only isolated.
 
 ### 3. Worker crash and recovery
 
@@ -400,9 +410,11 @@ throughout.
   single-threaded and deterministic, so it needs no locks and has no data races —
   this "one durable object, many calls, no locks" property is the heart of the
   demo.
-- **Per-operation timeouts and retries.** Each Activity has an explicit
-  start-to-close and schedule-to-close timeout and a retry budget; see
-  `activity_options` in `src/workflows.rs`.
+- **Per-operation timeouts and retries.** Model-backed Activities use
+  `durable_activity_options` — a start-to-close timeout, no total-time cap, and
+  unlimited retries — so they ride through partitions and crashes; delivery and
+  reporting use bounded budgets (`activity_options`). Both live in
+  `src/workflows.rs`.
 
 ### Best practices worth taking away
 
@@ -493,6 +505,7 @@ GET  /api/state
 POST /api/confessions       {"text":"I fixed the race with a sleep."}
 POST /api/demo/hold         {"held":true}
 POST /api/demo/mode         {"mode":"session"}   or {"mode":"per_confession"}
+POST /api/demo/agent-mode   {"agent_mode":"autonomous"} or {"agent_mode":"linear"}
 POST /api/demo/seed
 POST /api/demo/reset
 POST /webhooks/twilio/messages   signed Twilio form; optional
@@ -551,6 +564,10 @@ src/agent.rs        fixture and OpenAI agent backends
 src/domain.rs       shared serializable domain types
 src/twilio.rs       Twilio form parsing, signature checks, and keywords
 src/twilio_poll.rs  outbound-only polling of Twilio for inbound messages
+src/temporal.rs     Temporal client and Workflow start/Signal helpers
+src/moderation.rs   stage-safe sanitizing and word masking for raw display
+src/config.rs       environment-driven configuration
+src/lib.rs          module wiring and shared exports
 static/             stage dashboard
 tools/gen_qr.py     regenerate the confession QR for your own number
 compose.yaml        three-service local stack
@@ -561,5 +578,5 @@ For design boundaries, failure behavior, and production gaps, read
 
 ## Acknowledgments
 
-Built with help from Melissa Herrera, Spencer Judge, Chris Olszewski, and Tom
-Wheeler.
+Built with help from Melissa Herrera, Spencer Judge, Chris Olszewski, Tom
+Wheeler, and Shy.

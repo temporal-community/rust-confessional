@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -43,7 +43,18 @@ const SEED_CONFESSIONS: &[&str] = &[
     "I fixed the race condition with a sleep.",
     "I clone everything until it compiles.",
     "I wrote a Python script that now runs the company.",
+    "I commented out the failing test instead of fixing it.",
+    "My TODO to remove this before prod shipped three years ago.",
+    "I catch every error and log 'oops'.",
+    "I pushed straight to main on a Friday afternoon.",
+    "I unwrap() everything and pray.",
+    "My one integration test just asserts true.",
 ];
+
+/// How many confessions one "Seed examples" click adds. Each click advances a
+/// cursor through `SEED_CONFESSIONS` by this amount, so repeat clicks add fresh
+/// examples (wrapping around the pool) instead of the same rows every time.
+const SEED_BATCH: usize = 3;
 
 #[derive(Clone)]
 pub struct StageApp {
@@ -51,6 +62,7 @@ pub struct StageApp {
     temporal: Arc<TemporalGateway>,
     heartbeat: Arc<RwLock<WorkerHeartbeat>>,
     admission: Arc<Mutex<()>>,
+    seed_cursor: Arc<AtomicUsize>,
     config: StageConfig,
 }
 
@@ -63,6 +75,7 @@ impl StageApp {
             temporal,
             heartbeat: Arc::new(RwLock::new(WorkerHeartbeat::default())),
             admission: Arc::new(Mutex::new(())),
+            seed_cursor: Arc::new(AtomicUsize::new(0)),
             config,
         })
     }
@@ -224,11 +237,24 @@ impl StageApp {
 
     async fn seed_examples(&self) -> Result<usize, ApiError> {
         let _admission = self.admission.lock().await;
+        // Advance a shared cursor so each click seeds the next slice of the pool
+        // (wrapping), giving fresh examples on repeat clicks. Unique ULID-based
+        // ids mean the store never dedupes a re-seed away as an already-seen row.
+        let start = self.seed_cursor.fetch_add(SEED_BATCH, Ordering::Relaxed);
         let mut accepted = 0;
-        for (index, confession) in SEED_CONFESSIONS.iter().enumerate() {
-            self.submit_text_admitted((*confession).to_owned(), Some(format!("seed-{index}")))
-                .await?;
-            accepted += 1;
+        for offset in 0..SEED_BATCH {
+            let confession = SEED_CONFESSIONS[(start + offset) % SEED_CONFESSIONS.len()];
+            let id = format!("seed-{}", Ulid::new());
+            match self
+                .submit_text_admitted(confession.to_owned(), Some(id))
+                .await
+            {
+                Ok(_) => accepted += 1,
+                // Session hit its cap mid-batch: stop cleanly and report how many
+                // landed rather than failing the whole request.
+                Err(error) if error.0 == StatusCode::TOO_MANY_REQUESTS => break,
+                Err(error) => return Err(error),
+            }
         }
         Ok(accepted)
     }
