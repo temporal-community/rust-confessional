@@ -578,5 +578,5 @@ For design boundaries, failure behavior, and production gaps, read
 
 ## Acknowledgments
 
-Built with help from Melissa Herrera, Spencer Judge, Chris Olszewski, and Tom
-Wheeler.
+Built with help from Melissa Herrera, Spencer Judge, Chris Olszewski, Tom
+Wheeler, and Shy.
