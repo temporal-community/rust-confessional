@@ -265,6 +265,13 @@ h3 {
   border-color: rgba(255, 105, 105, 0.35);
 }
 
+/* Active mode: the live model, the aggregate workflow, or autonomous agent. */
+.detail-pill.is-active {
+  color: var(--rust-bright);
+  border-color: rgba(244, 106, 58, 0.45);
+  background: rgba(244, 106, 58, 0.08);
+}
+
 #hold-status {
   color: #111;
   background: var(--amber);
