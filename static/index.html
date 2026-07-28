@@ -6,8 +6,8 @@
     <meta name="color-scheme" content="light" />
     <meta name="theme-color" content="#ffffff" />
     <title>Rust Confessional</title>
-    <link rel="stylesheet" href="/styles.css?v=8" />
-    <script src="/app.js?v=8" defer></script>
+    <link rel="stylesheet" href="/styles.css?v=9" />
+    <script src="/app.js?v=9" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#confession-form">Skip to submission form</a>
@@ -19,6 +19,9 @@
         <div>
           <p class="eyebrow">Live agent demo</p>
           <h1>Rust Confessional</h1>
+          <p class="brand-tagline">
+            Durable AI agents on Temporal — built with the Rust SDK.
+          </p>
         </div>
       </div>
 
@@ -68,10 +71,6 @@
           </form>
           <p class="form-note">Ferris judges the decision, not the developer.</p>
 
-          <button id="demo-retry-button" class="demo-fill" type="button">
-            ⟳ Demo: load the API rate-limit confession
-          </button>
-
           <div class="sms-invite">
             <img
               class="sms-qr"
@@ -99,7 +98,7 @@
           <label class="hold-control" for="hold-toggle">
             <span>
               <strong>Hold before reply</strong>
-              <small>Build a queue, then kill the worker.</small>
+              <small>Park replies until you release them.</small>
             </span>
             <span class="switch">
               <input id="hold-toggle" type="checkbox" role="switch" />
@@ -110,7 +109,7 @@
           <label class="hold-control" for="mode-toggle">
             <span>
               <strong>Aggregate workflow</strong>
-              <small>One Temporal workflow for the whole session (demo). Off is one per confession (production). Switching resets the demo.</small>
+              <small>One workflow per session, not per confession (resets).</small>
             </span>
             <span class="switch">
               <input id="mode-toggle" type="checkbox" role="switch" />
@@ -121,7 +120,7 @@
           <label class="hold-control" for="agent-mode-toggle">
             <span>
               <strong>Autonomous agent</strong>
-              <small>Ferris decides each step and revises the draft (agentic loop). Off is the fixed linear pipeline. Applies to new confessions; no reset.</small>
+              <small>Ferris plans each step, not a fixed pipeline.</small>
             </span>
             <span class="switch">
               <input id="agent-mode-toggle" type="checkbox" role="switch" />
@@ -131,6 +130,14 @@
 
           <div class="demo-actions">
             <button id="seed-button" class="button button-secondary" type="button">Seed examples</button>
+            <button
+              id="demo-retry-button"
+              class="demo-fill"
+              type="button"
+              title="Load the API rate-limit confession (triggers the retry beat)"
+            >
+              ⟳ Rate-limit demo
+            </button>
             <button id="reset-button" class="button button-ghost danger" type="button">Reset demo</button>
           </div>
         </div>
@@ -178,6 +185,7 @@
             <div>
               <p class="eyebrow">Audience feed</p>
               <h2 id="feed-title">Confessions, live</h2>
+              <p class="form-note">Tip: click a card to pin it to the top.</p>
             </div>
             <span id="submission-count" class="count-badge">0 submissions</span>
           </div>

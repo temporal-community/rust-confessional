@@ -183,7 +183,9 @@ Keep **Hold before reply** on. Submit one confession manually, then either invit
 more submissions through the form or click **Seed examples**. With the required
 public-event setting `SHOW_RAW_CONFESSIONS=false`, raw form input is not echoed
 onto the feed: the card shows a neutral placeholder until the agent returns its
-stage-safe `display_confession`. The seed button adds:
+stage-safe `display_confession`. Each click of the seed button adds three
+confessions from a rotating pool of nine (click again for the next three),
+starting with:
 
 - “I fixed the race condition with a sleep.”
 - “I clone everything until it compiles.”
@@ -193,6 +195,11 @@ Wait until each visible item reaches **Reply Pending**. At this point the
 Workflow has durably recorded its plan and judgment and is waiting for a
 Signal. It has not run the delivery Activity, and the Hall of Shame still has no
 eligible winners because awards consider only `Sent` rows.
+
+Click the card you plan to narrate to **pin** it to the top. A pinned card stays
+put as new confessions arrive and as its status changes, so you can hold it
+side-by-side with its Workflow in Temporal Web while you kill and restart the
+Worker. Click it again to unpin.
 
 If helpful, open Temporal Web and search for the `rust-confession-` Workflow ID
 prefix. Temporal Web is outside the dashboard privacy guard: Workflow input and
@@ -365,9 +372,10 @@ commands are acknowledged without appearing as confessions.
 
 ### Audience input is quiet or networking fails
 
-Click **Seed examples**. The demo remains complete with the three bundled
-confessions. Fixture mode and localhost do not depend on venue networking after
-the Docker images are built. This is also the fallback if the Twilio number,
+Click **Seed examples**. The demo remains complete with the bundled confessions
+(three per click, from a pool of nine). Fixture mode and localhost do not depend
+on venue networking after the Docker images are built. This is also the fallback
+if the Twilio number,
 public proxy, or venue cellular service is unavailable.
 
 ### OpenAI is slow, unavailable, or produces a failed Workflow
