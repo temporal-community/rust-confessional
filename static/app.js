@@ -43,6 +43,8 @@ let resetConfirmTimer = null;
 let lastSuccessfulPoll = 0;
 let lastConnectionAnnouncement = "";
 let pendingSubmission = null;
+let pinnedId = null;
+let lastSubmissions = [];
 
 const WAITING_STATUSES = new Set([
   "received",
@@ -224,12 +226,21 @@ function appendResultRow(container, label, value, className = "") {
 function submissionCard(submission, isNew) {
   const item = document.createElement("li");
   const phase = statusPhase(submission.status);
-  item.className = `submission-card${isNew ? " is-new" : ""}`;
+  const pinned = Boolean(pinnedId) && safeText(submission.id) === pinnedId;
+  item.className = `submission-card${isNew ? " is-new" : ""}${pinned ? " is-pinned" : ""}`;
   item.dataset.phase = phase;
   item.dataset.submissionId = safeText(submission.id);
 
   const meta = document.createElement("div");
   meta.className = "submission-meta";
+
+  if (pinned) {
+    const pin = document.createElement("span");
+    pin.className = "submission-pin";
+    pin.textContent = "📌";
+    pin.setAttribute("aria-label", "Pinned");
+    meta.append(pin);
+  }
 
   const id = document.createElement("span");
   id.className = "submission-id";
@@ -350,7 +361,18 @@ function submissionTimestamp(submission) {
 }
 
 function renderSubmissions(submissions) {
+  lastSubmissions = submissions;
   const sorted = [...submissions].sort((left, right) => submissionTimestamp(right) - submissionTimestamp(left));
+  // Keep the pinned confession at the top so it stays in view as new confessions
+  // arrive and as statuses change (e.g. while you kill the worker).
+  if (pinnedId) {
+    const pinnedFirst = [
+      ...sorted.filter((submission) => safeText(submission.id) === pinnedId),
+      ...sorted.filter((submission) => safeText(submission.id) !== pinnedId),
+    ];
+    sorted.length = 0;
+    sorted.push(...pinnedFirst);
+  }
   const nextIds = new Set(sorted.map((submission) => safeText(submission.id)));
   const fragment = document.createDocumentFragment();
 
@@ -588,6 +610,26 @@ elements.resetButton.addEventListener("click", async () => {
     knownIds = new Set();
     penanceAnimated = new Set();
     hasRenderedState = false;
+    pinnedId = null;
+  }
+});
+
+// Click a confession card to pin it to the top so it stays in view as new
+// confessions arrive and statuses change; click again to unpin.
+elements.list.addEventListener("click", (event) => {
+  const card = event.target.closest(".submission-card");
+  if (!card) return;
+  // Don't hijack a click that was really the audience selecting text to read.
+  const selection = window.getSelection && window.getSelection();
+  if (selection && String(selection).length > 0) return;
+  const id = card.dataset.submissionId;
+  if (!id) return;
+  pinnedId = pinnedId === id ? null : id;
+  renderSubmissions(lastSubmissions);
+  if (pinnedId) {
+    elements.list
+      .querySelector(".submission-card.is-pinned")
+      ?.scrollIntoView({ block: "nearest" });
   }
 });
 

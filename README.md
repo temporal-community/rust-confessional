@@ -73,7 +73,8 @@ Open:
 The dashboard starts with **Hold before reply** enabled. Submit a confession,
 wait for `Reply Pending`, then turn the hold off to finish. While the agent
 works, the public card shows a neutral placeholder, replaced by the agent's
-`display_confession` once the judgment arrives.
+`display_confession` once the judgment arrives. Click any card to pin it to the
+top so it stays in view as new confessions arrive.
 
 Stop the containers while retaining both named volumes:
 
@@ -202,7 +203,8 @@ docker compose up --build -d
 
 The default model is in `compose.yaml`, but set `OPENAI_MODEL` explicitly since
 availability varies by account. Requests use the Responses API with strict JSON
-schemas, a 12-second HTTP timeout, and `store: false`.
+schemas, a 12-second HTTP timeout (configurable via `MODEL_TIMEOUT_SECONDS`), and
+`store: false`.
 
 To switch an already-running stack back to the fixture backend:
 
@@ -304,7 +306,9 @@ export TWILIO_POLL_SECONDS=4          # optional, default 4
 docker compose up -d --force-recreate stage
 ```
 
-Leave `TWILIO_WEBHOOK_URL` unset — setting it activates webhook mode instead.
+Leave `TWILIO_WEBHOOK_URL` unset for polling only — the webhook and poller are
+independent paths, so setting it starts the webhook *in addition* rather than
+switching modes.
 The poller baselines the existing message backlog on its first successful fetch
 (so texts sent before startup are ignored), deduplicates by `MessageSid`, skips
 STOP/START/HELP-family commands, and feeds each new message into the same
@@ -346,7 +350,8 @@ fallbacks are in [docs/DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md).
 ### 1. Transient model failure (rate-limit or downtime)
 
 Submit a confession that mentions rate limiting, for example
-"the API keeps rate-limiting my agent". The `compose` Activity returns a
+"the API keeps rate-limiting my agent" — or just click **⟳ Rate-limit demo**,
+which loads that confession for you. The `compose` Activity returns a
 *retryable* error on its first two attempts and succeeds on the third, keyed on
 the Activity's own attempt counter. The card stays in `Composing` while Temporal
 retries with backoff (the attempts are visible in Temporal Web), then recovers
@@ -530,9 +535,10 @@ Treat submissions as public conference content, not secrets:
   `stage-data` volume.
 - OpenAI mode sends confession text and agent context to the configured model
   provider.
-- Twilio mode receives sender and recipient fields for signature/request
-  validation but retains only a MessageSid-derived identity and the confession;
-  it does not store phone numbers in Stage or Workflow state.
+- The Twilio webhook path receives sender and recipient fields for
+  signature/request validation; the polling path never receives the sender
+  number at all. Either way, only a MessageSid-derived identity and the
+  confession are retained — no phone numbers in Stage or Workflow state.
 - Anyone who can reach the dashboard can view submissions and use its controls.
 - A model-produced stage-safe field reduces accidental projection of raw input;
   it is not a substitute for human moderation or an enforceable content policy.
@@ -541,9 +547,10 @@ Treat submissions as public conference content, not secrets:
 - Temporal Web can expose raw Workflow and model-Activity payloads even when the
   dashboard is in safe mode. Do not inspect arbitrary audience payloads on the
   projector.
-- The demo has a 500-character input limit and a default cap of 20 submissions
-  per session, but no identity, authentication, per-client rate limiting,
-  moderation queue, or deletion workflow.
+- The demo has a 500-character input limit (`MAX_CONFESSION_CHARS`) and a default
+  cap of 20 submissions per session (`MAX_SUBMISSIONS_PER_SESSION`), but no
+  identity, authentication, per-client rate limiting, moderation queue, or
+  deletion workflow.
 - Docker container environment variables are visible to sufficiently privileged
   local users. Use a secrets manager for a real deployment.
 - Never commit an API key. If you choose to use a `.env` file locally, add it to

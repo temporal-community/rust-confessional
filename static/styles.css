@@ -138,6 +138,14 @@ h1 {
   letter-spacing: -0.045em;
 }
 
+.brand-tagline {
+  max-width: 52ch;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
 h2 {
   margin-bottom: 0;
   font-size: clamp(1.35rem, 2vw, 2rem);
@@ -428,7 +436,9 @@ main {
 }
 
 .demo-fill {
-  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 7px 12px;
   background: var(--surface);
   border: 1px solid var(--line);
@@ -546,10 +556,15 @@ main {
 }
 
 .demo-actions {
-  display: grid;
-  grid-template-columns: 1fr auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
   gap: 8px;
   margin-top: 15px;
+}
+
+.demo-actions > * {
+  flex: 1 1 auto;
 }
 
 .pipeline {
@@ -717,10 +732,21 @@ main {
   border-left: 4px solid var(--rust);
   border-radius: 15px;
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.17);
+  cursor: pointer;
 }
 
 .submission-card.is-new {
   animation: arrive 500ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.submission-card.is-pinned {
+  border-color: var(--rust-bright);
+  box-shadow: 0 0 0 2px rgba(244, 106, 58, 0.55), 0 12px 30px rgba(0, 0, 0, 0.17);
+}
+
+.submission-pin {
+  font-size: 0.9rem;
+  line-height: 1;
 }
 
 .submission-card[data-phase="waiting"] {
