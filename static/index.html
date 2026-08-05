@@ -5,22 +5,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light" />
     <meta name="theme-color" content="#ffffff" />
-    <title>Rust Confessional</title>
-    <link rel="stylesheet" href="/styles.css?v=9" />
-    <script src="/app.js?v=9" defer></script>
+    <title>Wall of Regrets</title>
+    <script>
+      if (new URLSearchParams(window.location.search).get("view") === "wall") {
+        document.documentElement.classList.add("wall-view");
+      }
+    </script>
+    <link rel="stylesheet" href="/styles.css?v=13" />
+    <script src="/app.js?v=13" defer></script>
   </head>
   <body>
-    <a class="skip-link" href="#confession-form">Skip to submission form</a>
+    <a id="skip-link" class="skip-link" href="#confession-form">Skip to submission form</a>
     <div class="backdrop" aria-hidden="true"></div>
 
     <header class="site-header">
       <div class="brand">
         <div class="brand-mark" aria-hidden="true">🦀</div>
         <div>
-          <p class="eyebrow">Live agent demo</p>
-          <h1>Rust Confessional</h1>
-          <p class="brand-tagline">
-            Durable AI agents on Temporal — built with the Rust SDK.
+          <p id="brand-eyebrow" class="eyebrow">Temporal + Rust live demo</p>
+          <h1 id="brand-title">Wall of Regrets</h1>
+          <p id="brand-tagline" class="brand-tagline">
+            Your programming decisions, durably judged by Ferris.
           </p>
         </div>
       </div>
@@ -44,12 +49,12 @@
     </header>
 
     <main>
-      <section class="hero-grid" aria-label="Submit and control the demo">
-        <div class="submit-panel panel">
+      <section id="hero-grid" class="hero-grid" aria-label="Submit and control the demo">
+        <div id="submit-panel" class="submit-panel panel">
           <div class="panel-heading">
             <div>
-              <p class="eyebrow">Tell Ferris everything</p>
-              <h2>Your worst programming confession</h2>
+              <p id="submit-eyebrow" class="eyebrow">Tell Ferris everything</p>
+              <h2 id="submit-title">Your worst programming confession</h2>
             </div>
             <span class="command-hint" aria-hidden="true">01 / confess</span>
           </div>
@@ -81,12 +86,14 @@
             />
             <div class="sms-invite-copy">
               <p class="eyebrow">Or text it in</p>
-              <p class="form-note">Scan the code to open a text straight to Ferris.</p>
+              <p id="sms-invite-note" class="form-note">
+                Scan the code to open a text straight to Ferris.
+              </p>
             </div>
           </div>
         </div>
 
-        <div class="demo-panel panel">
+        <div id="demo-panel" class="demo-panel panel">
           <div class="panel-heading compact-heading">
             <div>
               <p class="eyebrow">Stage controls</p>

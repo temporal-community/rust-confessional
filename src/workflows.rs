@@ -78,8 +78,8 @@ impl ConfessionWorkflow {
         )
         .await;
 
-        // This controlled checkpoint makes the stage failure deterministic. The Signal is
-        // durable, so it is safe to arrive while this Worker is offline.
+        // This controlled checkpoint makes the stage handoff deterministic. The Signal is
+        // durable, so it is safe to arrive between Worker deployments.
         ctx.wait_condition(|state| state.released).await;
 
         set_status(ctx, SubmissionStatus::Sending);
@@ -988,8 +988,9 @@ fn activity_options(
     .build()
 }
 
-/// Retry policy for model-backed activities so they survive a worker outage
-/// (partition/kill): a bounded per-attempt timeout, no total-time cap, and
+/// Retry policy for model-backed activities so they survive a Worker outage
+/// (partition, redeploy, or crash): a bounded per-attempt timeout, no total-time
+/// cap, and
 /// unlimited retries, so transient failures (lost network, rate limits) keep
 /// retrying with backoff and the loop resumes exactly where it left off.
 fn durable_activity_options(start_to_close: u64) -> ActivityOptions {

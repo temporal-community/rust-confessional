@@ -1,8 +1,8 @@
 # Architecture
 
-Rust Confessional is a small durable-agent reference demo, not a production
+Wall of Regrets is a small durable-agent reference demo, not a production
 service. It separates deterministic orchestration from non-deterministic work
-and makes the Worker process safe to kill at a controlled point.
+and makes the Worker process safe to replace at a controlled point.
 
 ## Opening contrast: the naïve binary
 
@@ -16,9 +16,9 @@ The runtime image contains three Rust binaries:
 
 `make naive-run` starts a temporary container with one known-safe confession.
 After composing, it stores the pending judgment only in a local in-memory array
-and blocks. `make naive-forget` sends `SIGKILL` to that container.
-`make naive-restart` starts a fresh process without input, which reports zero
-recovered items and nothing to resume.
+and blocks. `make naive-redeploy` stops that container as a routine process
+replacement. `make naive-restart` starts a fresh process without input, which
+reports zero recovered items and nothing to resume.
 
 The naïve binary never calls Stage or Temporal. It exists solely to establish
 the failure that the durable architecture fixes; it is intentionally excluded
@@ -61,7 +61,7 @@ Temporal development server; the naïve binary runs only through its Make target
    trusted-input display switch is enabled.
 3. Browser input normally gets a ULID. Twilio input derives a stable ID from
    `MessageSid`. The resulting Workflow ID is readable and deterministic:
-   `rust-confession-{session_id}-{submission_id}`.
+   `rust-confession-{submission_id}`.
 4. A Worker polls the `rust-confessional` task queue.
 5. The Workflow runs the `plan` Activity using either the fixture or OpenAI
    backend.
@@ -101,8 +101,20 @@ The Workflow's durable state includes:
 - optional `Judgment`
 - whether the release Signal has been observed
 
-Temporal reconstructs that state from event history after a Worker crash. The
-Worker itself does not persist agent progress.
+Temporal reconstructs that state from event history when a compatible Worker
+next executes a Workflow Task. The Worker itself does not persist agent progress.
+
+At `ReplyPending`, the Workflow is durably open but no Workflow code is actively
+executing and no Worker thread or task slot is dedicated to the wait. Temporal
+retains the event history and schedules a new Workflow Task when the `release`
+Signal arrives. A Worker may cache replay state, so “parked” does not mean zero
+resource usage; it means the wait is not tied to a live Rust process.
+
+The stage sequence uses `make begin-redeploy` and `make finish-redeploy` to
+stretch a Worker replacement into a visible gap. The replacement runs the same
+replay-compatible image. Production deployments normally overlap Worker
+capacity and must use the SDK's supported versioning or patching strategy when
+Workflow code changes; this demo does not exercise Worker Versioning.
 
 | Concern | Owner | Durable? | Notes |
 | --- | --- | --- | --- |
@@ -110,7 +122,7 @@ Worker itself does not persist agent progress.
 | Submission, plan, judgment, release flag | Workflow state | Yes, via history | Rebuilt by replay |
 | Dashboard rows and hold setting | Stage JSON store | Yes, in a separate volume | Safe display by default; raw when explicitly enabled |
 | Worker heartbeat | Stage memory | No | Online if seen in the last three seconds |
-| Model client and Activity execution | Worker memory | No | Recreated on Worker restart |
+| Model client and Activity execution | Worker memory | No | Recreated on Worker replacement |
 | Browser rendering | Browser memory | No | Rebuilt by polling `/api/state` |
 
 The dashboard projection is intentionally non-authoritative. Workflow status is
@@ -280,8 +292,8 @@ control.
 
 Awards select the highest-scoring `Sent` submission in each category; pending,
 sending, and failed rows are excluded. There is no vote or final model call.
-This keeps winners hidden at the crash checkpoint and reveals them only after
-recovery.
+This keeps winners hidden at the durable-wait checkpoint and reveals them only
+after the replacement Worker completes delivery.
 
 The fixture backend preserves the small set of bundled, pre-approved example
 sentences and replaces unknown input with a category-level summary. The OpenAI
