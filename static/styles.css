@@ -1170,6 +1170,100 @@ main {
   }
 }
 
+/* Passive kiosk layout for a booth display. The operator keeps the normal
+   dashboard open separately; this view exposes no reset, hold, or mode controls. */
+html.wall-view main {
+  padding-top: 24px;
+}
+
+html.wall-view .site-header {
+  padding-bottom: 18px;
+}
+
+html.wall-view .hero-grid {
+  grid-template-columns: 1fr;
+}
+
+html.wall-view .submit-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 28px;
+  min-height: auto;
+}
+
+html.wall-view #confession-form,
+html.wall-view #demo-panel,
+html.wall-view .submit-panel > .form-note,
+html.wall-view .submit-panel .command-hint {
+  display: none;
+}
+
+html.wall-view .sms-invite {
+  flex-direction: row;
+  justify-content: center;
+  margin: 0;
+  min-width: 420px;
+  padding: 14px 18px;
+}
+
+html.wall-view .sms-qr {
+  width: 136px;
+  height: 136px;
+}
+
+html.wall-view .pipeline {
+  display: none;
+}
+
+html.wall-view .content-grid {
+  grid-template-columns: minmax(0, 2fr) minmax(330px, 0.8fr);
+}
+
+html.wall-view .submission-card:nth-child(n + 7) {
+  display: none;
+}
+
+html.wall-view .submission-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+html.wall-view .submission-card .penance-block {
+  display: none;
+}
+
+html.wall-view .feed .form-note {
+  display: none;
+}
+
+html.wall-view .awards {
+  position: sticky;
+  top: 20px;
+  align-self: start;
+}
+
+@media (max-width: 900px) {
+  html.wall-view .submit-panel,
+  html.wall-view .content-grid {
+    grid-template-columns: 1fr;
+  }
+
+  html.wall-view .sms-invite {
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  html.wall-view .submission-list {
+    grid-template-columns: 1fr;
+  }
+
+  html.wall-view .awards {
+    position: static;
+  }
+}
+
 /* ============================================================
    Light theme surface layer
    The palette lives in :root; these rules re-skin the handful of

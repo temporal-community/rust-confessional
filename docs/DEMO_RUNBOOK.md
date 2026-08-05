@@ -2,24 +2,24 @@
 
 This runbook is optimized for a ten-minute meetup or conference slot. The
 reliable stage path uses the fixture backend and a controlled Workflow
-checkpoint, so the failure happens at a legible moment every time.
+checkpoint, so the deployment handoff happens at a legible moment every time.
 
 ## The story in one sentence
 
-Process memory forgets; Temporal does not. The naïve process loses its pending
-reply, while Temporal retains the durable agent's event history and a release
-Signal sent with no Worker online.
+A normal process replacement loses local memory. A Temporal Workflow can wait
+durably without occupying a Worker, accept a Signal during a deployment gap,
+and resume on a fresh compatible Worker.
 
 ## Roles of the three services
 
 - **Stage** remains running and serves the dashboard at port `3000`.
 - **Temporal** remains running and stores Workflow history at port `7233`.
-- **Worker** is the only service killed during the durable demonstration.
+- **Worker** is the only service replaced during the durable demonstration.
 
 The opening `naive` binary runs in a separate temporary container. It is not a
 fourth service and never connects to Stage or Temporal.
 
-Do not kill the Stage or Temporal container for the main recovery beat. That
+Do not stop the Stage or Temporal container for the main handoff beat. That
 would demonstrate a different failure mode and make the dashboard harder to
 interpret.
 
@@ -45,8 +45,9 @@ Verify both pages:
 - <http://localhost:3000>
 - <http://localhost:8233>
 
-Perform the entire kill/restart sequence at least once on the presentation
-machine. Then build the final images before leaving reliable internet:
+Perform the entire stop/Signal/replacement sequence at least once on the
+presentation machine. Then build the final images before leaving reliable
+internet:
 
 ```sh
 MODEL_PROVIDER=fixture docker compose up --build -d
@@ -55,20 +56,20 @@ docker compose images
 
 Fixture mode needs no external model connection after the images exist.
 Rehearse the naïve opening from two terminals as well; `make naive-run` is
-supposed to block until the other terminal kills it.
+supposed to block until the other terminal replaces it.
 
 ## Presentation setup
 
 Use two terminal tabs, two browser tabs, and optionally a third terminal for
 logs.
 
-Terminal A — naïve process first, then durable status/restart commands:
+Terminal A — naïve process first, then durable status/replacement commands:
 
 ```sh
 make status
 ```
 
-Terminal B — kill commands. Optional Terminal C — logs:
+Terminal B — deployment commands. Optional Terminal C — logs:
 
 ```sh
 make logs
@@ -130,7 +131,7 @@ guard.
 Before admitting public input, set it back to `false`, recreate Stage, and reset
 the projection. Changing the flag alone does not remove raw rows already stored.
 
-## Opening beat: show process memory fail
+## Opening beat: show process memory fail during replacement
 
 This takes about one minute and uses the known-safe seeded confession. It does
 not touch the dashboard or the durable Workflows.
@@ -145,17 +146,17 @@ The fixture agent prints `RECEIVED`, `PLANNING`, `TOOL`, and `COMPOSING`, then
 stops here:
 
 ```text
-REPLY PENDING  memory only — kill this container now
+REPLY PENDING  memory only — replace this container now
 Pending confessions in this process: 1
 ```
 
 While that command remains attached, run in Terminal B:
 
 ```sh
-make naive-forget
+make naive-redeploy
 ```
 
-Terminal A exits non-zero because `SIGKILL` is intentional. Then, in Terminal A:
+Terminal A exits cleanly because the old process stopped. Then, in Terminal A:
 
 ```sh
 make naive-restart
@@ -170,12 +171,12 @@ Nothing to resume—the process memory is empty.
 
 Speaker line:
 
-> The agent did the work, but its only memory died with its process.
+> Nothing exceptional happened. We replaced a service, and its in-memory work vanished.
 
 Now move to the dashboard. The agent loop remains recognizable, but Temporal
-owns its progress and the Worker becomes disposable.
+owns its progress and the Worker becomes replaceable.
 
-## Main durable recovery sequence
+## Main durable deployment sequence
 
 ### 1. Build the pending work
 
@@ -193,13 +194,19 @@ starting with:
 
 Wait until each visible item reaches **Reply Pending**. At this point the
 Workflow has durably recorded its plan and judgment and is waiting for a
-Signal. It has not run the delivery Activity, and the Hall of Shame still has no
-eligible winners because awards consider only `Sent` rows.
+Signal. No Workflow code is actively executing and no Worker thread or task slot
+is dedicated to the wait. It has not run the delivery Activity, and the Hall of
+Shame still has no eligible winners because awards consider only `Sent` rows.
+
+Speaker line:
+
+> Ferris is parked, not sleeping in a Rust process. Temporal holds the history;
+> the Worker is free for other work.
 
 Click the card you plan to narrate to **pin** it to the top. A pinned card stays
 put as new confessions arrive and as its status changes, so you can hold it
-side-by-side with its Workflow in Temporal Web while you kill and restart the
-Worker. Click it again to unpin.
+side-by-side with its Workflow in Temporal Web during the Worker replacement.
+Click it again to unpin.
 
 If helpful, open Temporal Web and search for the `rust-confession-` Workflow ID
 prefix. Temporal Web is outside the dashboard privacy guard: Workflow input and
@@ -209,16 +216,16 @@ you intend to show. Never click into an arbitrary audience payload live.
 Lookup receives only the typed plan and delivery receives only the submission
 ID, so neither of those Activity payloads redundantly contains the confession.
 
-### 2. Kill only the Worker
+### 2. Begin the Worker deployment
 
 In Terminal B:
 
 ```sh
-make kill-worker
+make begin-redeploy
 ```
 
-This sends `SIGKILL` to the `worker` container. It is intentionally not a
-graceful shutdown. Confirm:
+This normally stops the old `worker` container and deliberately leaves the
+replacement out for one stage beat. Confirm:
 
 ```sh
 make status
@@ -228,9 +235,14 @@ Within roughly three seconds the dashboard's Worker indicator changes to
 **Offline**. The confession cards remain because the Stage projection is stored
 separately, and the authoritative Workflow history remains in Temporal.
 
-### 3. Release while the Worker is offline
+Speaker line:
 
-Turn **Hold before reply** off in the dashboard while the Worker is still dead.
+> We are between Worker deployments. The application is unavailable for new
+> tasks, but the work has not disappeared.
+
+### 3. Release during the deployment gap
+
+Turn **Hold before reply** off before the replacement Worker starts.
 
 This action sends a `release` Signal to every current, unfinished Workflow.
 Temporal accepts and records the Signals. The cards stay at **Reply Pending**
@@ -238,25 +250,32 @@ because no Worker is available to process the new Workflow Tasks.
 
 Speaker line:
 
-> The command arrived while there was no Rust process available to hear it.
+> The command arrived between deploys. Temporal recorded it even though no Rust
+> process was polling.
 
-### 4. Restart the Worker
+### 4. Start the replacement Worker
 
 In Terminal A:
 
 ```sh
-make restart-worker
+make finish-redeploy
 ```
 
 Watch the dashboard. The heartbeat returns, and the Workflows replay their
 history, observe the already-recorded Signal, and move through **Sending** to
 **Sent**. No confession is resubmitted and no plan is reconstructed from the
 dashboard. As rows become `Sent`, the Hall of Shame winners appear; this ties the
-award reveal directly to successful recovery and delivery.
+award reveal directly to successful handoff and delivery.
 
 If the dashboard transitions are too fast, use the preselected seeded or
 speaker-owned Workflow in Temporal Web to point out the Signal and the
-post-restart Activity. Do not open arbitrary audience payloads on the projector.
+post-deployment Activity. Do not open arbitrary audience payloads on the
+projector.
+
+This local sequence intentionally stretches the gap so the Signal is visible.
+Real deployments normally overlap Worker capacity. The replacement uses the
+same replay-compatible Workflow code; this is not a Worker Versioning demo and
+does not make arbitrary code changes replay-safe.
 
 ### 5. Land the explanation
 
@@ -282,13 +301,13 @@ released state and proceed directly to `Sent`.
 | Time | Beat |
 | ---: | --- |
 | `0:00` | Run the naïve agent to `Reply Pending` |
-| `0:40` | Kill it, restart it, and show zero recovered |
+| `0:40` | Replace it and show zero pending work recovered |
 | `1:15` | Open the durable dashboard and submit the first confession |
 | `2:00` | Explain the loop; name Client, Workflow, Activity, and Worker |
 | `3:15` | Seed or accept more confessions; wait for `Reply Pending` |
-| `4:30` | Kill the Worker and let the offline indicator land |
-| `5:15` | Release replies while it is offline |
-| `6:00` | Restart and watch the same Workflows finish |
+| `4:30` | Begin the Worker deployment and let the gap become visible |
+| `5:15` | Release replies between deployments |
+| `6:00` | Start the replacement and watch the same Workflows finish |
 | `7:15` | Inspect the preselected safe Temporal history |
 | `8:15` | Read the Hall of Shame awards |
 | `9:15` | Recap and leave buffer |
@@ -399,7 +418,7 @@ A model Activity has at most three attempts. Replacing the Worker backend can
 help retries that remain open, but it does not revive a Workflow execution that
 has already failed.
 
-### Worker does not show offline
+### Deployment gap does not become visible
 
 Wait three seconds, then verify the container is stopped:
 
@@ -409,12 +428,12 @@ docker compose logs --tail=100 worker
 ```
 
 Do not stop the entire Compose project; the Stage needs to keep polling and
-Temporal needs to record the offline Signal.
+Temporal needs to record the Signal during the gap.
 
-### Worker does not recover
+### Replacement Worker does not resume
 
 ```sh
-make restart-worker
+make finish-redeploy
 make status
 docker compose logs --tail=100 worker temporal
 ```
@@ -441,8 +460,8 @@ Stage was unavailable are not rebuilt automatically from Workflow history.
 
 Keep a short screen recording or two screenshots from the final rehearsal:
 
-1. Confessions at `Reply Pending` with Worker offline
-2. A seeded or speaker-owned Workflow history after restart, with submissions
+1. Confessions at `Reply Pending` during the deployment gap
+2. A seeded or speaker-owned Workflow history after replacement, with submissions
    at `Sent`
 
 The code walkthrough and those two states still tell the durability story.

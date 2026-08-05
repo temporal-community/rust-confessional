@@ -2,6 +2,7 @@
 
 const POLL_INTERVAL_MS = 700;
 const REQUEST_TIMEOUT_MS = 5000;
+const wallMode = new URLSearchParams(window.location.search).get("view") === "wall";
 
 const elements = {
   form: document.querySelector("#confession-form"),
@@ -31,7 +32,30 @@ const elements = {
   judged: document.querySelector("#stat-judged"),
   toast: document.querySelector("#toast"),
   screenReaderStatus: document.querySelector("#sr-status"),
+  brandEyebrow: document.querySelector("#brand-eyebrow"),
+  brandTitle: document.querySelector("#brand-title"),
+  brandTagline: document.querySelector("#brand-tagline"),
+  submitEyebrow: document.querySelector("#submit-eyebrow"),
+  submitTitle: document.querySelector("#submit-title"),
+  smsInviteNote: document.querySelector("#sms-invite-note"),
+  awardsTitle: document.querySelector("#awards-title"),
+  skipLink: document.querySelector("#skip-link"),
+  heroGrid: document.querySelector("#hero-grid"),
 };
+
+if (wallMode) {
+  document.title = "Wall of Regrets";
+  setText(elements.brandEyebrow, "Temporal booth experience");
+  setText(elements.brandTitle, "Wall of Regrets");
+  setText(elements.brandTagline, "Your programming decisions, durably judged by Ferris.");
+  setText(elements.submitEyebrow, "Rust can fix that");
+  setText(elements.submitTitle, "Confess. Get judged. Join the wall.");
+  setText(elements.smsInviteNote, "Scan to text Ferris. New judgments appear here automatically.");
+  setText(elements.awardsTitle, "Top Regrets");
+  elements.skipLink.href = "#feed-title";
+  setText(elements.skipLink, "Skip to the Wall of Regrets");
+  elements.heroGrid.setAttribute("aria-label", "Join the Wall of Regrets");
+}
 
 let knownIds = new Set();
 let penanceAnimated = new Set();
@@ -364,7 +388,7 @@ function renderSubmissions(submissions) {
   lastSubmissions = submissions;
   const sorted = [...submissions].sort((left, right) => submissionTimestamp(right) - submissionTimestamp(left));
   // Keep the pinned confession at the top so it stays in view as new confessions
-  // arrive and as statuses change (e.g. while you kill the worker).
+  // arrive and as statuses change (e.g. during a Worker replacement).
   if (pinnedId) {
     const pinnedFirst = [
       ...sorted.filter((submission) => safeText(submission.id) === pinnedId),

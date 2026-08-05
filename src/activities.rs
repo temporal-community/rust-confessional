@@ -205,7 +205,7 @@ impl ConfessionalActivities {
     ) -> Result<DeliveryReceipt, ActivityError> {
         // The stage build uses the dashboard as the delivery channel. A real SMS adapter
         // belongs here and must deduplicate by submission.id because Activities are at least once.
-        // Stay in Sending long enough for the 700 ms projector poll to show recovery.
+        // Stay in Sending long enough for the 700 ms projector poll to show resumption.
         sleep(Duration::from_millis(1_200)).await;
         Ok(DeliveryReceipt {
             submission_id: input.submission_id,

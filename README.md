@@ -1,16 +1,28 @@
-# Rust Confessional
+# Wall of Regrets
 
-A stage-friendly Rust and Temporal demo: audience members submit a programming
-confession, Ferris plans a response, consults an approved Rust remedy catalog,
-and produces a dry but useful judgment. The dashboard makes every transition
-visible. Kill the Worker at the controlled checkpoint, release the replies while
-it is offline, restart it, and watch Temporal resume the agent.
+Wall of Regrets is a stage-friendly Rust and Temporal demo: audience members
+submit a programming confession, Ferris plans a response, consults an approved
+Rust remedy catalog, and produces a dry but useful judgment. The dashboard makes
+every transition visible. Park the Workflow at the human-in-the-loop checkpoint,
+begin a routine Worker replacement, release the reply during the deployment gap,
+and watch the fresh Worker resume the same agent.
 
-![The Rust Confessional dashboard: confession form, durable agent pipeline, live confession feed, and the Hall of Shame awards](static/Ferris-Confessional2.png)
+![The Wall of Regrets booth view with the committed dummy SMS QR and live confession feed](docs/media/wall-of-regrets.png)
+
+## Deploy-and-resume walkthrough
+
+[![Play the side-by-side Wall of Regrets and Temporal Web walkthrough](docs/media/wall-of-regrets-deploy-poster.png)](docs/media/wall-of-regrets-walkthrough.mp4)
+
+The 10-second [MP4 walkthrough](docs/media/wall-of-regrets-walkthrough.mp4)
+shows the judgment reach `Reply Pending` without occupying an active Worker
+slot, the old Worker stop for a deliberately stretched deployment, the durable
+`release` Signal arrive during the gap, and a fresh compatible Worker finish the
+same Workflow. An [animated preview](docs/media/wall-of-regrets-walkthrough.gif)
+is included for Markdown renderers that do not play repository-hosted video.
 
 The talk-sized thesis is:
 
-> Rust makes the agent loop explicit. Temporal makes its progress survive.
+> Rust runs the agent loop. Temporal holds its progress between tasks.
 
 **Built on the official Temporal Rust SDK** (Public Preview) — if you want to build
 durable Rust services yourself, start here:
@@ -37,10 +49,12 @@ Temporal installed on the host.
 - A deliberate `Reply Pending` checkpoint and durable `release` Signal
 - A dry, model-written `penance` rendered on the dashboard as a loop that types
   itself out, repeated by severity
-- Three failure beats — model rate-limit, network partition, Worker crash —
-  contrasting Temporal's high-level with Rust's low-level reliability
+- Three reliability beats — durable human wait, Worker replacement, and
+  retryable dependency failure — with network partition and hard crash retained
+  as optional engineering cases
 - Persistent Docker volumes for Temporal history and the dashboard projection
 - Three score-based “Hall of Shame” awards, selected only from `Sent` rows
+- A passive `?view=wall` **Wall of Regrets** booth layout with no operator controls
 
 Twilio input is inbound-only: audience texts arrive by webhook or API polling,
 and the delivery Activity reports back to the stage without sending an SMS reply.
@@ -82,8 +96,8 @@ Stop the containers while retaining both named volumes:
 make down
 ```
 
-See [the demo runbook](docs/DEMO_RUNBOOK.md) for the exact kill, offline
-release, and restart sequence.
+See [the demo runbook](docs/DEMO_RUNBOOK.md) for the exact park, deployment-gap,
+Signal, and replacement-Worker sequence.
 
 ## Opening beat: the naïve agent forgets
 
@@ -100,18 +114,18 @@ make naive-run
 Wait for:
 
 ```text
-REPLY PENDING  memory only — kill this container now
+REPLY PENDING  memory only — replace this container now
 Pending confessions in this process: 1
 ```
 
 Then, in Terminal B:
 
 ```sh
-make naive-forget
+make naive-redeploy
 ```
 
-Terminal A exits because its container received `SIGKILL`; a non-zero Make exit
-is expected. Back in Terminal A, simulate restarting the agent:
+Terminal A exits cleanly because its in-memory process was replaced. Back in
+Terminal A, start the replacement:
 
 ```sh
 make naive-restart
@@ -124,8 +138,9 @@ Recovered pending confessions: 0
 Nothing to resume—the process memory is empty.
 ```
 
-That is the short opening contrast. The main demo below kills only the Temporal
-Worker and recovers the same pending work.
+That is the short opening contrast: an ordinary process replacement loses local
+memory. The main demo replaces a Temporal Worker and resumes the same pending
+work from durable history.
 
 ## Stage feed safety mode
 
@@ -338,16 +353,83 @@ in the repo. To restore normal tracking (e.g. to update the placeholder), run
 put the human-readable number on your slides rather than in the dashboard, which
 is why the on-screen caption intentionally omits it.
 
-## Failure modes to demo
+## Wall of Regrets booth mode
 
-The demo shows reliability at two layers: **Temporal** (durable retries with
-backoff, Activity timeouts, at-least-once redelivery, state that survives crashes
-and partitions) and **Rust** (typed retryable-vs-permanent errors, bounded HTTP
-timeouts, clean Worker reconnect — all compiler-checked). Three beats escalate
-from a recoverable glitch to outright process death; full speaker cues and
-fallbacks are in [docs/DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md).
+Open <http://localhost:3000/?view=wall> for a passive booth display. The wall
+keeps the QR invitation, newest judgments, submission count, and award leaders on
+screen while hiding the submission form and all operator controls. Keep the
+normal dashboard open in a separate operator-only tab for hold, reset, seed, and
+mode controls.
 
-### 1. Transient model failure (rate-limit or downtime)
+![Wall of Regrets booth display with the committed dummy QR and recovered award leaders](docs/media/wall-of-regrets.png)
+
+Recommended booth setup:
+
+```sh
+export MODEL_PROVIDER=fixture             # reliable offline fallback
+export MAX_SUBMISSIONS_PER_SESSION=100    # per-confession mode handles the volume
+export SHOW_RAW_CONFESSIONS=false          # never project raw SMS input
+docker compose up --build -d
+```
+
+Then:
+
+1. Regenerate `static/confess-qr.svg` locally with the event's Twilio number.
+2. Keep **Per confession** mode and turn **Hold before reply** off.
+3. Put `/?view=wall` full-screen on the public display.
+4. Keep `/` on the operator laptop and test the kill switch before doors open.
+5. Reset between event days; use `docker compose down -v` only when old Temporal
+   history and the Stage projection may be permanently discarded.
+
+The wall view is a presentation layout, not an authorization boundary. Compose
+still binds Stage to loopback; expose only the signed Twilio webhook path (or use
+outbound polling), never the dashboard or its unauthenticated control endpoints.
+
+## Reliability beats to demo
+
+Lead with the everyday production story: an interaction waits for a person,
+Workers are replaced during a deployment, and the interaction continues. This
+shows reliability at two layers: **Temporal** retains Workflow history, Signals,
+and retry state; **Rust** makes the agent steps and retryable-vs-permanent errors
+explicit and compiler-checked. Full speaker cues and fallbacks are in
+[docs/DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md).
+
+### 1. Park for human input without holding a Worker
+
+Keep replies held and submit or seed confessions. At `Reply Pending`, the
+Workflow is open in Temporal but no Workflow code is actively executing and no
+Worker thread or task slot is held while it waits for the `release` Signal. The
+durable source of truth is the event history, not a suspended Rust process.
+
+“Parked” is presentation shorthand, not a claim that the Workflow consumes zero
+resources: Temporal still stores its history, and a Worker may retain replay
+state in cache. The important boundary is that waiting does not require a live
+process dedicated to that confession.
+
+### 2. Replace the Worker during live work
+
+With confessions still at `Reply Pending`, deliberately stretch a deployment
+window across two commands:
+
+```sh
+make begin-redeploy
+# Turn Hold before reply off while no Worker is polling.
+make finish-redeploy
+```
+
+`begin-redeploy` stops the old Worker normally. Temporal records the release
+Signal during the gap. `finish-redeploy` creates a fresh Worker from the current
+image; it replays compatible Workflow history and continues through `Sending`
+to `Sent` without resubmitting the confession or rerunning completed agent
+steps. The local gap is intentionally visible; real deployments normally
+overlap Worker capacity.
+
+This demonstrates **Worker replacement with the same replay-compatible code**.
+It does not demonstrate Worker Versioning or make arbitrary Workflow code
+changes safe. Production code rollouts still need the SDK's supported
+versioning or patching strategy and replay-compatibility testing.
+
+### 3. Transient model failure (rate-limit or downtime)
 
 Submit a confession that mentions rate limiting, for example
 "the API keeps rate-limiting my agent" — or just click **⟳ Rate-limit demo**,
@@ -359,7 +441,7 @@ with no operator action. Rust decides the error is retryable; Temporal owns the
 backoff and keeps the Workflow durable. This works in both fixture and OpenAI
 mode.
 
-### 2. Network partition
+### Optional: network partition
 
 ```sh
 make partition-worker
@@ -372,30 +454,11 @@ progress and lose nothing; `heal-worker` reconnects it and Temporal redelivers
 the pending Tasks so execution resumes. If a model call is in flight when the
 partition hits (OpenAI mode), that Activity times out and simply retries — the
 model-backed Activities use unlimited attempts with no total-time cap — so the
-loop rides through the outage instead of failing. This is distinct from a crash:
-the process never died, it was only isolated.
+loop rides through the outage instead of failing. Keep this as an optional
+infrastructure-oriented variation; the deployment story is more universal.
 
-### 3. Worker crash and recovery
-
-Keep replies held, submit or seed confessions, and wait until they show
-`Reply Pending`. Then run:
-
-```sh
-make kill-worker
-```
-
-After about three seconds the dashboard reports the Worker offline. While it is
-offline, turn **Hold before reply** off in the dashboard. Temporal accepts the
-release Signal, but no Worker is available to advance the Workflow. Restart it:
-
-```sh
-make restart-worker
-```
-
-The Worker replays Workflow history and continues through `Sending` to `Sent`.
-Only then do those rows become eligible for the Hall of Shame, so the awards
-reveal lands after recovery. The Stage process and Temporal server stay up
-throughout.
+The `make kill-worker` and `make restart-worker` controls remain available for a
+hard-crash variation, but they are not the recommended talk path.
 
 ## Workflow design and best practices
 
@@ -403,7 +466,7 @@ throughout.
 
 - **One Workflow per confession.** Each submission starts its own
   `ConfessionWorkflow` with a stable, readable Workflow ID
-  (`rust-confession-{session}-{submission}`). This is the idiomatic unit of work
+  (`rust-confession-{submission}`). This is the idiomatic unit of work
   and scales to very large numbers of Workflows.
 - **Deterministic orchestration, side effects in Activities.** The Workflow
   decides *what* happens and in what order; every model call, catalog lookup,
@@ -417,8 +480,9 @@ throughout.
   demo.
 - **Per-operation timeouts and retries.** Model-backed Activities use
   `durable_activity_options` — a start-to-close timeout, no total-time cap, and
-  unlimited retries — so they ride through partitions and crashes; delivery and
-  reporting use bounded budgets (`activity_options`). Both live in
+  unlimited retries — so they ride through dependency outages, partitions, and
+  Worker replacement; delivery and reporting use bounded budgets
+  (`activity_options`). Both live in
   `src/workflows.rs`.
 
 ### Best practices worth taking away
@@ -470,10 +534,13 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
 | `make logs` | Follow Stage and Worker logs |
 | `make status` | Show Compose service state |
 | `make naive-run` | Run the blocking, in-memory fixture agent in a temporary container |
-| `make naive-forget` | Send `SIGKILL` to the named `naive-agent` container |
+| `make naive-redeploy` | Stop the in-memory agent as a routine process replacement |
+| `make naive-forget` | Backwards-compatible alias for `make naive-redeploy` |
 | `make naive-restart` | Start a fresh naïve process and show that zero items recover |
-| `make kill-worker` | Send `SIGKILL` to only the Worker container |
-| `make restart-worker` | Start the stopped Worker container |
+| `make begin-redeploy` | Stop the old Worker and open the visible deployment gap |
+| `make finish-redeploy` | Create the compatible replacement Worker |
+| `make kill-worker` | Optional hard-crash variation: send `SIGKILL` to the Worker |
+| `make restart-worker` | Restart a Worker stopped by the hard-crash variation |
 | `make partition-worker` | Disconnect the Worker from the Compose network (simulate a network partition) |
 | `make heal-worker` | Reconnect the Worker to the Compose network |
 | `make reset-demo` | Pause admissions, release unfinished Workflows, wait up to 12 seconds, then start a fresh session |

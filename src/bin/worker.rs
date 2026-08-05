@@ -55,6 +55,34 @@ async fn main() -> anyhow::Result<()> {
         model_mode,
         "durable agent Worker started"
     );
+
+    let shutdown = worker.shutdown_handle();
+    #[cfg(unix)]
+    tokio::spawn(async move {
+        let terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate());
+        match terminate {
+            Ok(mut terminate) => {
+                tokio::select! {
+                    _ = terminate.recv() => {}
+                    _ = tokio::signal::ctrl_c() => {}
+                }
+            }
+            Err(error) => {
+                warn!(%error, "could not install SIGTERM handler; waiting for Ctrl-C");
+                let _ = tokio::signal::ctrl_c().await;
+            }
+        }
+        info!("Worker shutdown requested; draining Temporal polls");
+        shutdown();
+    });
+
+    #[cfg(not(unix))]
+    tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        info!("Worker shutdown requested; draining Temporal polls");
+        shutdown();
+    });
+
     worker.run().await?;
     Ok(())
 }

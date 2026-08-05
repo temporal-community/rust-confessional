@@ -37,11 +37,24 @@ async fn main() -> anyhow::Result<()> {
     let judgment = backend.compose(&input, &plan, Some(&remedy), &[]).await?;
 
     let pending_in_memory = [judgment];
-    println!("REPLY PENDING  memory only — kill this container now");
+    println!("REPLY PENDING  memory only — replace this container now");
     println!(
         "Pending confessions in this process: {}",
         pending_in_memory.len()
     );
 
-    std::future::pending::<anyhow::Result<()>>().await
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        tokio::select! {
+            _ = terminate.recv() => {}
+            _ = tokio::signal::ctrl_c() => {}
+        }
+    }
+
+    #[cfg(not(unix))]
+    tokio::signal::ctrl_c().await?;
+
+    Ok(())
 }
