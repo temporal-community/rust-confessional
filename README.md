@@ -20,9 +20,11 @@ slot, the old Worker stop for a deliberately stretched deployment, the durable
 same Workflow. An [animated preview](docs/media/wall-of-regrets-walkthrough.gif)
 is included for Markdown renderers that do not play repository-hosted video.
 
-## Talk recording
+## Talk recording and slides
 
 [Watch the Wall of Regrets Rust meetup talk on YouTube](https://youtu.be/_t_Rxf8Z4mU?si=bqvJKqz_hZe2OheV).
+
+[Download the "Rust Can Fix That" slide deck (PDF)](docs/media/rust-can-fix-that-slides.pdf).
 
 The talk-sized thesis is:
 
