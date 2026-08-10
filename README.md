@@ -1,83 +1,86 @@
+<div align="center">
+
+[![Rust](https://img.shields.io/badge/Rust-1.88%2B-dea584?logo=rust&logoColor=white)](Cargo.toml)
+[![Temporal Rust SDK](https://img.shields.io/badge/Temporal_Rust_SDK-0.5.0-635bff)](https://github.com/temporalio/sdk-rust)
+[![Docker Compose](https://img.shields.io/badge/Run_with-Docker_Compose-2496ed?logo=docker&logoColor=white)](compose.yaml)
+[![Watch the talk](https://img.shields.io/badge/Watch-the_talk-ff0033?logo=youtube&logoColor=white)](https://youtu.be/_t_Rxf8Z4mU?si=bqvJKqz_hZe2OheV)
+
+</div>
+
 # Wall of Regrets
 
-Wall of Regrets is a stage-friendly Rust and Temporal demo: audience members
-submit a programming confession, Ferris plans a response, consults an approved
-Rust remedy catalog, and produces a dry but useful judgment. The dashboard makes
-every transition visible. Park the Workflow at the human-in-the-loop checkpoint,
-begin a routine Worker replacement, release the reply during the deployment gap,
-and watch the fresh Worker resume the same agent.
+**An audience-powered AI agent that keeps its place while the Rust Worker comes
+and goes.**
 
-![The Wall of Regrets booth view with the committed dummy SMS QR and live confession feed](docs/media/wall-of-regrets.png)
+People submit a programming confession from a phone or browser. Ferris plans a
+response, consults an approved Rust remedy catalog, and returns a judgment,
+prescription, and penance. The agent loop runs in Rust. Temporal keeps its
+progress durable between tasks.
 
-## Deploy-and-resume walkthrough
+The live talk used the name **Rust Confessional**. The booth display is the
+**Wall of Regrets**. They are the same demo.
 
-[![Play the side-by-side Wall of Regrets and Temporal Web walkthrough](docs/media/wall-of-regrets-deploy-poster.png)](docs/media/wall-of-regrets-walkthrough.mp4)
+> **See it in action:** Watch the
+> [Rust meetup talk](https://youtu.be/_t_Rxf8Z4mU?si=bqvJKqz_hZe2OheV), play the
+> [10-second deploy-and-resume walkthrough](docs/media/wall-of-regrets-walkthrough.mp4),
+> or [download the slide deck](docs/media/rust-can-fix-that-slides.pdf).
 
-The 10-second [MP4 walkthrough](docs/media/wall-of-regrets-walkthrough.mp4)
-shows the judgment reach `Reply Pending` without occupying an active Worker
-slot, the old Worker stop for a deliberately stretched deployment, the durable
-`release` Signal arrive during the gap, and a fresh compatible Worker finish the
-same Workflow. An [animated preview](docs/media/wall-of-regrets-walkthrough.gif)
-is included for Markdown renderers that do not play repository-hosted video.
+![A side-by-side walkthrough of Wall of Regrets and Temporal Web during a Worker redeploy](docs/media/wall-of-regrets-walkthrough.gif)
 
-## Talk recording and slides
+### Key demo moments
 
-[Watch the Wall of Regrets Rust meetup talk on YouTube](https://youtu.be/_t_Rxf8Z4mU?si=bqvJKqz_hZe2OheV).
+| Moment | What happens | Why it matters |
+| --- | --- | --- |
+| **Audience input** | Attendees submit confessions from a phone or browser | The audience becomes part of the system, not merely spectators |
+| **Visible agent loop** | Ferris decides, uses a skill, folds the result into state, and repeats | The basic AI loop stays small enough to explain on stage |
+| **Durable human wait** | Each Workflow parks at `Reply Pending` until an operator releases it | Waiting for a person does not require a dedicated live process |
+| **Routine Worker redeploy** | The old Worker stops, a Signal arrives during the gap, and a fresh Worker resumes | Process lifetime is separate from interaction lifetime |
+| **Retry recovery** | A simulated rate limit fails twice and succeeds on the third attempt | Rust classifies the error; Temporal owns durable backoff |
+| **Booth mode** | A passive wall shows new judgments and Hall of Shame awards | The same durable backend works as an ongoing interactive installation |
 
-[Download the "Rust Can Fix That" slide deck (PDF)](docs/media/rust-can-fix-that-slides.pdf).
+### Why this architecture?
 
-The talk-sized thesis is:
+> **Process-only approach:** pending work lives in memory. Replace the process
+> and the replacement starts empty.
+>
+> **Durable approach:** Workflow state and Signals live in Temporal history. A
+> compatible replacement Worker replays that history and continues.
 
-> Rust runs the agent loop. Temporal holds its progress between tasks.
+![Animated comparison of process memory and Temporal history during the same Worker redeploy](docs/media/durable-agent-redeploy.gif)
 
-**Built on the official Temporal Rust SDK** (Public Preview) — if you want to build
-durable Rust services yourself, start here:
-[`temporalio/sdk-rust`](https://github.com/temporalio/sdk-rust) and the
-[Rust SDK docs](https://docs.temporal.io/develop/rust).
+The animation shows the talk-sized thesis: **Rust runs the work. Temporal
+remembers where it was.**
 
-This repository is intentionally Docker-first. You do not need Rust, Cargo, or
-Temporal installed on the host.
+## The problem
 
-## What is included
+An agent loop is straightforward:
 
-- A tiny in-memory `naive` agent for the opening failure contrast
-- A Rust/Axum stage server and live browser dashboard
-- One Temporal Workflow per confession (production shape), with a dashboard
-  toggle to an aggregate per-session mode that makes durable state vivid on stage
-- Typed Activities for planning, remedy lookup, composition, projection, and
-  delivery
-- A deterministic fixture model for rehearsals and offline stage use
-- An optional OpenAI Responses API backend with structured JSON output
-- Optional Twilio inbound messages, by signed webhook or by outbound-only API
-  polling for hosts that cannot expose a public URL
-- A safe-by-default stage feed using the agent's display paraphrase, plus an
-  explicit trusted-input switch for showing incoming text immediately
-- A deliberate `Reply Pending` checkpoint and durable `release` Signal
-- A dry, model-written `penance` rendered on the dashboard as a loop that types
-  itself out, repeated by severity
-- Three reliability beats — durable human wait, Worker replacement, and
-  retryable dependency failure — with network partition and hard crash retained
-  as optional engineering cases
-- Persistent Docker volumes for Temporal history and the dashboard projection
-- Three score-based “Hall of Shame” awards, selected only from `Sent` rows
-- A passive `?view=wall` **Wall of Regrets** booth layout with no operator controls
+1. Observe the current state.
+2. Decide what to do next.
+3. Run a model call or tool.
+4. Fold the result into state.
+5. Repeat until the goal or a stop condition is reached.
 
-Twilio input is inbound-only: audience texts arrive by webhook or API polling,
-and the delivery Activity reports back to the stage without sending an SMS reply.
+Everything around that loop is harder. Model APIs rate-limit. Humans reply
+later. Workers are redeployed. Networks disappear. If the only copy of the
+agent's progress is in process memory, every interruption becomes custom
+recovery code.
 
-## Quick start
+This demo keeps the loop ordinary Rust and moves the reliability boundary into
+Temporal Workflows, Activities, Signals, retries, and event history.
+
+## 60-second quickstart
+
+The repository is intentionally Docker-first. You do not need Rust, Cargo, or a
+Temporal server installed on the host.
 
 Prerequisites:
 
 - Docker Engine or Docker Desktop with Docker Compose v2
-- Loopback ports `3000`, `7233`, and `8233` available
+- Loopback ports `3000`, `7233`, and `8233`
 - Network access for the first image pull and Rust dependency build
 
-The native Temporal Rust SDK is in Public Preview; APIs may evolve. Every
-`temporalio-*` crate is pinned to `=0.5.0` with `Cargo.lock` committed — treat
-upgrades as deliberate replay-compatibility work.
-
-Start in fixture mode, which is the safest mode for a live presentation:
+Start the deterministic fixture version:
 
 ```sh
 make up
@@ -87,98 +90,291 @@ curl -fsS -o /dev/null http://localhost:3000/healthz
 
 Open:
 
-- Stage dashboard: <http://localhost:3000>
-- Temporal Web UI: <http://localhost:8233>
+| URL | Purpose |
+| --- | --- |
+| <http://localhost:3000> | Stage dashboard and operator controls |
+| <http://localhost:8233> | Temporal Web and Workflow history |
+| <http://localhost:3000/?view=wall> | Passive Wall of Regrets booth display |
 
-The dashboard starts with **Hold before reply** enabled. Submit a confession,
-wait for `Reply Pending`, then turn the hold off to finish. While the agent
-works, the public card shows a neutral placeholder, replaced by the agent's
-`display_confession` once the judgment arrives. Click any card to pin it to the
-top so it stays in view as new confessions arrive.
-
-Stop the containers while retaining both named volumes:
+Stop the stack while retaining both named volumes:
 
 ```sh
 make down
 ```
 
-See [the demo runbook](docs/DEMO_RUNBOOK.md) for the exact park, deployment-gap,
-Signal, and replacement-Worker sequence.
+## Run the durable demo beat
 
-## Opening beat: the naïve agent forgets
+The dashboard starts in autonomous, per-confession mode with **Hold before
+reply** enabled.
 
-The runtime image also ships a deliberately non-durable agent: fixture backend,
-one judgment, pending reply held only in process memory. Run it after
-`make build` or `make up`.
+1. Submit a confession and watch the card move through the agent steps.
+2. Wait for `Reply Pending`. The Workflow is durable and no Workflow task is
+   actively executing while it waits.
+3. Stop the old Worker to open a deliberately visible deployment gap:
 
-Terminal A (this command intentionally stays attached):
+   ```sh
+   make begin-redeploy
+   ```
+
+4. Turn **Hold before reply** off while no Worker is polling. Temporal records
+   the durable `release` Signal.
+5. Start a fresh compatible Worker:
+
+   ```sh
+   make finish-redeploy
+   ```
+
+The replacement Worker replays Workflow history, sees the Signal, and continues
+through `Sending` to `Sent`. The confession is not resubmitted, and completed
+Activities are not rerun.
+
+Full presenter cues and fallback paths are in the
+[demo runbook](docs/DEMO_RUNBOOK.md).
+
+## How it works
+
+![Architecture showing audience input, the Rust Stage, Temporal history, the Rust Worker loop, and Activities](docs/media/durable-agent-architecture.svg)
+
+### The key insight
+
+The Rust Worker is compute, not the source of truth. The Workflow's inputs,
+Activity results, durable state transitions, and Signals are represented in
+Temporal history. A Worker can disappear between tasks without taking the
+interaction with it.
+
+The three boundaries are intentionally explicit:
+
+| Boundary | Owns | Why |
+| --- | --- | --- |
+| **Workflow** | Deterministic decisions, status, agent findings, judgment, release state | Replay reconstructs the same durable object |
+| **Activity** | Model calls, catalog lookup, projection updates, delivery | Side effects get timeouts, retries, and typed errors |
+| **Signal** | Human input that may arrive at any time | Input is recorded even when no Worker is available |
+
+### The agent loop in Rust
+
+The autonomous path is a bounded decide-and-act loop. The production code lives
+in [`src/workflows.rs`](src/workflows.rs); this condensed sketch shows its shape:
+
+```rust
+for iteration in 0..MAX_AGENT_STEPS {
+    let step = ctx
+        .start_activity(
+            ConfessionalActivities::decide_next_step,
+            decide_input(iteration),
+            durable_activity_options(30),
+        )
+        .await?;
+
+    match step {
+        AgentStep::Lookup { skill, .. } => run_skill(ctx, skill).await?,
+        AgentStep::Compose | AgentStep::Revise { .. } => compose(ctx).await?,
+        AgentStep::Finish => break,
+    }
+}
+
+ctx.wait_condition(|state| state.released).await;
+deliver(ctx).await?;
+```
+
+The model may choose the next approved step, but it cannot invent arbitrary
+tools or run forever. The loop has a deterministic cap and every tool call sits
+behind a typed Activity boundary.
+
+## Demo controls and modes
+
+| Control | Default | Use it to show |
+| --- | --- | --- |
+| **Autonomous agent** | On | A bounded model-driven decide, act, observe loop |
+| **Linear agent** | Off | The fixed plan, remedy lookup, compose pipeline |
+| **Per confession** | On | One production-shaped Workflow per submission |
+| **Aggregate workflow** | Off | One durable session object for stage visualization |
+| **Hold before reply** | On | A durable human-in-the-loop checkpoint |
+| **Fixture model** | On | Repeatable offline behavior for talks and booths |
+| **Show raw confessions** | Off | Stage-safe agent paraphrases instead of raw audience text |
+
+Switching between per-confession and aggregate Workflow modes resets the current
+session so the two shapes never interleave.
+
+### Model modes
+
+#### Fixture mode
+
+Fixture mode is the stage-safe default:
 
 ```sh
-make naive-run
+MODEL_PROVIDER=fixture docker compose up --build -d
 ```
 
-Wait for:
+It classifies by keyword, uses the bundled remedy catalog, and adds short
+simulated delays so the pipeline remains visible. It is deterministic and makes
+no model-provider network calls after the image is built.
 
-```text
-REPLY PENDING  memory only — replace this container now
-Pending confessions in this process: 1
-```
+#### OpenAI mode
 
-Then, in Terminal B:
+OpenAI mode uses structured Responses API calls for planning, deciding, and
+composing. Supply a model your account can access:
 
 ```sh
-make naive-redeploy
+export MODEL_PROVIDER=openai
+read -rsp "OpenAI API key: " OPENAI_API_KEY
+export OPENAI_API_KEY
+export OPENAI_MODEL="YOUR_MODEL_ID"
+docker compose up --build -d
 ```
 
-Terminal A exits cleanly because its in-memory process was replaced. Back in
-Terminal A, start the replacement:
+Requests use strict JSON schemas, a configurable 12-second HTTP timeout, and
+`store: false`. The model-backed Activities use durable retry options so
+temporary provider outages do not fail the interaction immediately.
+
+To return an existing stack to fixture mode:
 
 ```sh
-make naive-restart
+export MODEL_PROVIDER=fixture
+unset OPENAI_API_KEY
+docker compose up -d --force-recreate worker
 ```
 
-It reports:
+## Audience and booth experience
 
-```text
-Recovered pending confessions: 0
-Nothing to resume—the process memory is empty.
+The normal dashboard accepts browser submissions and exposes operator controls.
+The wall view is a passive display designed for a booth:
+
+![Wall of Regrets booth display with the committed dummy QR and award leaders](docs/media/wall-of-regrets.png)
+
+Recommended booth setup:
+
+```sh
+export MODEL_PROVIDER=fixture
+export MAX_SUBMISSIONS_PER_SESSION=100
+export SHOW_RAW_CONFESSIONS=false
+docker compose up --build -d
 ```
 
-That is the short opening contrast: an ordinary process replacement loses local
-memory. The main demo replaces a Temporal Worker and resumes the same pending
-work from durable history.
+Then:
 
-## Stage feed safety mode
+1. Keep **Per confession** mode enabled.
+2. Turn **Hold before reply** off.
+3. Put `/?view=wall` full-screen on the public display.
+4. Keep `/` open on the operator laptop.
+5. Test reset and hold controls before doors open.
 
-`SHOW_RAW_CONFESSIONS=false` is the default and the recommended setting for a
-public event. Stage stores and serves a neutral placeholder followed by the
-agent's stage-safe paraphrase. The raw confession still exists in Temporal
-history and, in OpenAI mode, is sent to the model provider.
+The wall is a presentation layout, not an authorization boundary. Keep the
+dashboard on loopback and never expose its unauthenticated controls to a LAN or
+the internet.
 
-For a rehearsal or a presenter-controlled set of trusted inputs, raw display can
-be explicitly enabled:
+### Optional inbound SMS with Twilio
+
+Twilio input is inbound-only. Audience texts become submissions and results
+appear on the wall; the demo does not send an SMS response. You need your own
+Twilio account and number. The committed QR contains a placeholder on purpose.
+
+<details>
+<summary><strong>Signed webhook setup</strong></summary>
+
+Set the account, auth token, and exact public webhook URL:
+
+```sh
+export TWILIO_ACCOUNT_SID="AC..."
+read -rsp "Twilio auth token: " TWILIO_AUTH_TOKEN
+export TWILIO_AUTH_TOKEN
+export TWILIO_WEBHOOK_URL="https://YOUR_PUBLIC_HOST/webhooks/twilio/messages"
+export SHOW_RAW_CONFESSIONS=false
+export ALLOW_UNMODERATED_TWILIO=false
+docker compose up -d --force-recreate stage
+```
+
+Configure the number's inbound message webhook to send an HTTP `POST` to the
+same URL.
+
+The endpoint validates `X-Twilio-Signature` and `AccountSid`, deduplicates on
+`MessageSid`, and ignores STOP, START, and HELP-family messages. It validates
+sender and recipient fields but never retains or logs phone numbers.
+
+Expose only `/webhooks/twilio/messages` through a path-restricted HTTPS reverse
+proxy. Do not tunnel the whole Stage service.
+
+</details>
+
+<details>
+<summary><strong>Outbound-only API polling</strong></summary>
+
+Polling is useful when a locked-down host cannot receive a public webhook. It
+only makes outbound HTTPS calls to `api.twilio.com`.
+
+```sh
+export TWILIO_ACCOUNT_SID="AC..."
+export TWILIO_API_KEY_SID="SK..."
+read -rsp "Twilio API key secret: " TWILIO_API_KEY_SECRET
+export TWILIO_API_KEY_SECRET
+export TWILIO_NUMBER="+15551234567"
+export TWILIO_POLL_SECONDS=4
+docker compose up -d --force-recreate stage
+```
+
+Leave `TWILIO_WEBHOOK_URL` unset for polling-only operation. On its first
+successful request the poller baselines the existing backlog, then accepts only
+new messages. The latency is up to `TWILIO_POLL_SECONDS`.
+
+</details>
+
+<details>
+<summary><strong>Generate the live SMS QR locally</strong></summary>
+
+Never commit a real event number. Public numbers attract spam and inbound
+charges, and Git history is permanent.
+
+```sh
+pip install segno
+python tools/gen_qr.py "+15551234567"
+git update-index --skip-worktree static/confess-qr.svg
+```
+
+Restore normal tracking later with:
+
+```sh
+git update-index --no-skip-worktree static/confess-qr.svg
+```
+
+</details>
+
+## Safety and privacy
+
+Treat submissions as public conference content, not secrets.
+
+- Raw confession text is stored in Temporal Workflow history.
+- With `SHOW_RAW_CONFESSIONS=false`, the Stage projection stores a neutral
+  placeholder followed by the agent's display paraphrase.
+- OpenAI mode sends confession text and accumulated agent context to the
+  configured model provider.
+- Temporal Web may expose raw Workflow and Activity payloads even when the wall
+  is in safe display mode. Do not project arbitrary payloads.
+- The stage-safe display field reduces accidental raw projection. It is not a
+  moderation service or enforceable content policy.
+- The demo has a 500-character input limit and a default cap of 20 submissions
+  per session, but no identity, authentication, per-client rate limiting,
+  moderation queue, or deletion workflow.
+- Anyone who can reach the dashboard can view submissions and use its controls.
+- Never commit API keys, Twilio credentials, or a live phone number.
+
+<details>
+<summary><strong>Trusted-input raw display mode</strong></summary>
+
+For rehearsals with presenter-controlled input:
 
 ```sh
 export SHOW_RAW_CONFESSIONS=true
 docker compose up -d --force-recreate stage
 ```
 
-In this mode Stage normalizes the text (strips control characters, collapses
-whitespace, keeps letters/numbers/punctuation/emoji), blanks any `MASK_WORDS`,
-then projects and persists it in the `stage-data` volume instead of using
-`display_confession`. Text that is empty after normalization is rejected. No word
-list ships here — supply your own via `MASK_WORDS` (comma- or space-separated, in
-your git-ignored `.env`). These guards raise the floor but are not moderation:
-they miss creative spellings, context, and PII like names or phone numbers. Keep
-the Hold toggle and Reset ready as a kill switch, and rehearse with real inputs
-before opening to an audience or a public Twilio number.
+Stage strips control characters, collapses whitespace, applies your optional
+`MASK_WORDS`, and rejects empty normalized text. These guards do not catch
+creative spellings, context, or personal information.
 
-Stage fails closed if Twilio is configured at the same time as raw display. It
-will start only if `ALLOW_UNMODERATED_TWILIO=true` is also explicit. That escape
-hatch exists for controlled integration testing, not public events; prefer
-disabling Twilio or keeping raw display off.
+Stage fails closed if Twilio and raw display are enabled together. The
+`ALLOW_UNMODERATED_TWILIO=true` escape hatch exists for controlled integration
+testing, not public events.
 
-To return to the safe default and clear the current Stage projection:
+Return to the safe default and clear the projection with:
 
 ```sh
 export SHOW_RAW_CONFESSIONS=false
@@ -187,381 +383,115 @@ docker compose up -d --force-recreate stage
 make reset-demo
 ```
 
-Changing the flag does not scrub rows already persisted. Temporal history retains
-raw Workflow input and the plan/compose Activity inputs in either mode; the lookup
-Activity gets only the typed plan and delivery only the submission ID, so raw text
-is not copied there.
+Changing the flag does not scrub existing Stage rows or Temporal history.
 
-## Model modes
+</details>
 
-### Fixture mode (recommended on stage)
+## Reliability playbook
 
-Fixture mode is the default:
+### 1. Open with the process-memory contrast
 
-```sh
-MODEL_PROVIDER=fixture docker compose up --build -d
-```
-
-It classifies by keyword, uses the bundled remedy catalog, and adds short
-simulated delays so the pipeline stays visible. Outputs are repeatable and it
-makes no network calls — but the Docker image must still be built or pulled
-before an offline event.
-
-### OpenAI mode
-
-OpenAI mode makes structured-output requests per confession: one to plan and
-one to compose in the linear shape, plus a decide-next-step call each turn (and
-a self-critique call when the loop runs that skill) in the autonomous shape.
-Supply a model that your account can access. To avoid putting the API key itself
-in shell history:
+The image also contains a deliberately non-durable agent:
 
 ```sh
-export MODEL_PROVIDER=openai
-read -rsp "OpenAI API key: " OPENAI_API_KEY; export OPENAI_API_KEY; echo
-export OPENAI_MODEL="YOUR_MODEL_ID"
-docker compose up --build -d
+# Terminal A
+make naive-run
+
+# Terminal B, after REPLY PENDING appears
+make naive-redeploy
+
+# Terminal A
+make naive-restart
 ```
 
-The default model is in `compose.yaml`, but set `OPENAI_MODEL` explicitly since
-availability varies by account. Requests use the Responses API with strict JSON
-schemas, a 12-second HTTP timeout (configurable via `MODEL_TIMEOUT_SECONDS`), and
-`store: false`.
+The replacement reports zero recovered confessions because the pending reply
+existed only in the old process.
 
-To switch an already-running stack back to the fixture backend:
+### 2. Park and redeploy the durable agent
 
-```sh
-export MODEL_PROVIDER=fixture
-unset OPENAI_API_KEY
-docker compose up -d --force-recreate worker
-```
+Use the `begin-redeploy` and `finish-redeploy` sequence described in
+[Run the durable demo beat](#run-the-durable-demo-beat). A Signal can arrive
+during the gap because Temporal, not the Worker process, owns the Workflow
+history.
 
-This changes future Activity execution; it does not reopen a Workflow that has
-already failed after exhausting its retries.
+This demonstrates replacement with the same replay-compatible code. It does
+not demonstrate arbitrary Workflow code changes or Worker Versioning.
 
-## Autonomous agent loop
+### 3. Recover from a transient dependency failure
 
-Each confession runs one of two agent shapes, chosen by the dashboard's
-Linear ↔ Autonomous toggle:
+Submit "the API keeps rate-limiting my agent" or click **Rate-limit demo**. The
+`compose` Activity returns a retryable error twice, then succeeds on its third
+attempt. The card remains in `Composing` while Temporal backs off and retries.
 
-- **Linear** is the fixed pipeline: plan, look up a remedy, compose.
-- **Autonomous** (the demo default) hands the agent a bounded decide/act loop.
-  On each turn it picks one step — run a skill, compose a draft, revise it once,
-  or finish — and the dashboard renders the step trace.
+### Optional infrastructure variations
 
-Three skills are approved, and only these three:
-
-- **Remedy lookup** returns guidance from the bundled Rust remedy catalog. The
-  catalog, not the model, owns remedies, so suggested tools stay on-brand.
-- **Self-critique** reviews the work so far — the confession and the findings
-  already gathered — and names one concrete improvement, which the next compose
-  folds in.
-- **Doc lookup** is a *simulated* web search: it returns a canned,
-  realistic-looking result and makes **no live network call**, so the beat is
-  deterministic and offline-safe in both backends.
-
-The loop is model-driven in OpenAI mode (the model chooses each step against a
-strict JSON schema and runs the real self-critique) and deterministic in fixture
-mode (a content-aware policy keyed on the confession's category). Either way the
-loop is hard-capped on steps and always terminates with a validated judgment —
-on an explicit `finish` in fixture mode, or, if OpenAI reaches the cap first, on
-a fallback compose.
-
-Part of that judgment is the **Ferris Level** — a 1–5 severity plus a very short
-justification (for example "prod-facing unsafe" or "cosmetic nit"). In OpenAI
-mode the model authors both the rating and the reason, and because a revise
-re-composes with the findings gathered so far, it can re-rate and re-justify as
-it learns more. The dashboard shows it as `Ferris Level N/5 — <reason>`.
-
-## Optional inbound SMS (Twilio)
-
-Both paths below need **your own Twilio account and a Twilio phone number** (a
-paid number — inbound SMS is billed per message); plug your own credentials into
-the variables shown. The demo ships with no number of its own, and the committed
-QR points at a placeholder.
-
-The webhook path is disabled unless all three variables below are set.
-`TWILIO_WEBHOOK_URL` must be the exact external URL Twilio invokes (scheme, host,
-path, port, query string) — it is part of signature validation. Keep
-`SHOW_RAW_CONFESSIONS=false` for a public number.
-
-```sh
-export TWILIO_ACCOUNT_SID="AC..."
-read -rsp "Twilio auth token: " TWILIO_AUTH_TOKEN; export TWILIO_AUTH_TOKEN; echo
-export TWILIO_WEBHOOK_URL="https://YOUR_PUBLIC_HOST/webhooks/twilio/messages"
-export SHOW_RAW_CONFESSIONS=false
-export ALLOW_UNMODERATED_TWILIO=false
-docker compose up -d --force-recreate stage
-```
-
-Configure the inbound message webhook for the demo number to send an HTTP
-`POST` to the same `TWILIO_WEBHOOK_URL`.
-
-Compose publishes Stage only on loopback. Use a path-restricted HTTPS reverse
-proxy that forwards only `/webhooks/twilio/messages` to
-`http://127.0.0.1:3000/webhooks/twilio/messages`. Do not use a whole-service
-tunnel: it would also expose the unauthenticated hold, seed, and reset controls.
-
-The endpoint requires `application/x-www-form-urlencoded`, validates
-`X-Twilio-Signature` and `AccountSid`, and keys submissions on `MessageSid`.
-`From`/`To` are validated but never retained or logged. STOP/START/HELP-family
-messages are acknowledged without starting Workflows. The response is empty TwiML
-— no outbound SMS; results appear on the dashboard, and unsigned requests are
-rejected.
-
-### Inbound via API polling (no public URL)
-
-When the host cannot expose a public webhook — a locked-down or work laptop —
-Stage can instead **poll** Twilio's REST API. It only makes outbound HTTPS calls
-to `api.twilio.com`; nothing listens for Twilio, so there is no tunnel and none
-of the exposure the webhook note above warns about.
-
-Polling activates when `TWILIO_NUMBER` is set. Credentials prefer an API key
-(Console → Account → API keys & tokens), falling back to the account auth token:
-
-```sh
-export TWILIO_ACCOUNT_SID="AC..."
-export TWILIO_API_KEY_SID="SK..."
-read -rsp "Twilio API key secret: " TWILIO_API_KEY_SECRET; export TWILIO_API_KEY_SECRET; echo
-export TWILIO_NUMBER="+15551234567"   # E.164
-export TWILIO_POLL_SECONDS=4          # optional, default 4
-docker compose up -d --force-recreate stage
-```
-
-Leave `TWILIO_WEBHOOK_URL` unset for polling only — the webhook and poller are
-independent paths, so setting it starts the webhook *in addition* rather than
-switching modes.
-The poller baselines the existing message backlog on its first successful fetch
-(so texts sent before startup are ignored), deduplicates by `MessageSid`, skips
-STOP/START/HELP-family commands, and feeds each new message into the same
-submission path as the browser form. This is inbound-only and needs no A2P
-registration; the tradeoff is up to `TWILIO_POLL_SECONDS` of latency between a
-text being sent and appearing on the dashboard.
-
-### Confession QR code
-
-The dashboard shows a QR that encodes `sms:<number>` — scanning it opens the
-audience member's Messages app addressed to the demo number, with a 🦀 in the
-centre. The committed `static/confess-qr.svg` uses a **placeholder number on
-purpose**: a real number in a public repo attracts spam and per-message charges
-(inbound SMS bills you even when the demo is not running) and cannot be removed
-from git history. Regenerate it with your own number for a live event, and keep
-that copy local:
-
-```sh
-pip install segno
-python tools/gen_qr.py "+15551234567"        # your Twilio number, E.164
-git update-index --skip-worktree static/confess-qr.svg   # never commit the real one
-```
-
-`--skip-worktree` tells git to ignore your local edit so the placeholder stays
-in the repo. To restore normal tracking (e.g. to update the placeholder), run
-`git update-index --no-skip-worktree static/confess-qr.svg`. For a live talk,
-put the human-readable number on your slides rather than in the dashboard, which
-is why the on-screen caption intentionally omits it.
-
-## Wall of Regrets booth mode
-
-Open <http://localhost:3000/?view=wall> for a passive booth display. The wall
-keeps the QR invitation, newest judgments, submission count, and award leaders on
-screen while hiding the submission form and all operator controls. Keep the
-normal dashboard open in a separate operator-only tab for hold, reset, seed, and
-mode controls.
-
-![Wall of Regrets booth display with the committed dummy QR and recovered award leaders](docs/media/wall-of-regrets.png)
-
-Recommended booth setup:
-
-```sh
-export MODEL_PROVIDER=fixture             # reliable offline fallback
-export MAX_SUBMISSIONS_PER_SESSION=100    # per-confession mode handles the volume
-export SHOW_RAW_CONFESSIONS=false          # never project raw SMS input
-docker compose up --build -d
-```
-
-Then:
-
-1. Regenerate `static/confess-qr.svg` locally with the event's Twilio number.
-2. Keep **Per confession** mode and turn **Hold before reply** off.
-3. Put `/?view=wall` full-screen on the public display.
-4. Keep `/` on the operator laptop and test the kill switch before doors open.
-5. Reset between event days; use `docker compose down -v` only when old Temporal
-   history and the Stage projection may be permanently discarded.
-
-The wall view is a presentation layout, not an authorization boundary. Compose
-still binds Stage to loopback; expose only the signed Twilio webhook path (or use
-outbound polling), never the dashboard or its unauthenticated control endpoints.
-
-## Reliability beats to demo
-
-Lead with the everyday production story: an interaction waits for a person,
-Workers are replaced during a deployment, and the interaction continues. This
-shows reliability at two layers: **Temporal** retains Workflow history, Signals,
-and retry state; **Rust** makes the agent steps and retryable-vs-permanent errors
-explicit and compiler-checked. Full speaker cues and fallbacks are in
-[docs/DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md).
-
-### 1. Park for human input without holding a Worker
-
-Keep replies held and submit or seed confessions. At `Reply Pending`, the
-Workflow is open in Temporal but no Workflow code is actively executing and no
-Worker thread or task slot is held while it waits for the `release` Signal. The
-durable source of truth is the event history, not a suspended Rust process.
-
-“Parked” is presentation shorthand, not a claim that the Workflow consumes zero
-resources: Temporal still stores its history, and a Worker may retain replay
-state in cache. The important boundary is that waiting does not require a live
-process dedicated to that confession.
-
-### 2. Replace the Worker during live work
-
-With confessions still at `Reply Pending`, deliberately stretch a deployment
-window across two commands:
-
-```sh
-make begin-redeploy
-# Turn Hold before reply off while no Worker is polling.
-make finish-redeploy
-```
-
-`begin-redeploy` stops the old Worker normally. Temporal records the release
-Signal during the gap. `finish-redeploy` creates a fresh Worker from the current
-image; it replays compatible Workflow history and continues through `Sending`
-to `Sent` without resubmitting the confession or rerunning completed agent
-steps. The local gap is intentionally visible; real deployments normally
-overlap Worker capacity.
-
-This demonstrates **Worker replacement with the same replay-compatible code**.
-It does not demonstrate Worker Versioning or make arbitrary Workflow code
-changes safe. Production code rollouts still need the SDK's supported
-versioning or patching strategy and replay-compatibility testing.
-
-### 3. Transient model failure (rate-limit or downtime)
-
-Submit a confession that mentions rate limiting, for example
-"the API keeps rate-limiting my agent" — or just click **⟳ Rate-limit demo**,
-which loads that confession for you. The `compose` Activity returns a
-*retryable* error on its first two attempts and succeeds on the third, keyed on
-the Activity's own attempt counter. The card stays in `Composing` while Temporal
-retries with backoff (the attempts are visible in Temporal Web), then recovers
-with no operator action. Rust decides the error is retryable; Temporal owns the
-backoff and keeps the Workflow durable. This works in both fixture and OpenAI
-mode.
-
-### Optional: network partition
+Simulate a network partition:
 
 ```sh
 make partition-worker
 make heal-worker
 ```
 
-`partition-worker` disconnects the Worker container from the Compose network, so
-the process keeps running but cannot reach Temporal (or Stage). Workflows make no
-progress and lose nothing; `heal-worker` reconnects it and Temporal redelivers
-the pending Tasks so execution resumes. If a model call is in flight when the
-partition hits (OpenAI mode), that Activity times out and simply retries — the
-model-backed Activities use unlimited attempts with no total-time cap — so the
-loop rides through the outage instead of failing. Keep this as an optional
-infrastructure-oriented variation; the deployment story is more universal.
+The Worker process stays alive but cannot reach Temporal or Stage. Pending tasks
+are redelivered when the connection returns.
 
-The `make kill-worker` and `make restart-worker` controls remain available for a
-hard-crash variation, but they are not the recommended talk path.
+A hard-crash variation is also available:
 
-## Workflow design and best practices
+```sh
+make kill-worker
+make restart-worker
+```
 
-### How it is built
+The routine redeploy story is the recommended talk path because it is more
+representative of everyday production operations.
 
-- **One Workflow per confession.** Each submission starts its own
-  `ConfessionWorkflow` with a stable, readable Workflow ID
-  (`rust-confession-{submission}`). This is the idiomatic unit of work
-  and scales to very large numbers of Workflows.
-- **Deterministic orchestration, side effects in Activities.** The Workflow
-  decides *what* happens and in what order; every model call, catalog lookup,
-  status report, and delivery runs behind an Activity boundary so replay stays
-  deterministic.
-- **Durable in-process state.** The Workflow folds each result into its own
-  state via `ctx.state_mut(...)` (plan, judgment, status, release flag), rebuilt
-  by replay after any failure and exposed through the `snapshot` query. It runs
-  single-threaded and deterministic, so it needs no locks and has no data races —
-  this "one durable object, many calls, no locks" property is the heart of the
-  demo.
-- **Per-operation timeouts and retries.** Model-backed Activities use
-  `durable_activity_options` — a start-to-close timeout, no total-time cap, and
-  unlimited retries — so they ride through dependency outages, partitions, and
-  Worker replacement; delivery and reporting use bounded budgets
-  (`activity_options`). Both live in
-  `src/workflows.rs`.
+## Design choices worth taking away
 
-### Best practices worth taking away
+- **One Workflow per confession.** Each submission gets a stable, readable
+  Workflow ID. Temporal scales by running many Workflows.
+- **Deterministic orchestration.** Workflow code decides what happens. Model
+  calls, catalog lookup, reporting, and delivery run as Activities.
+- **Typed durable state.** Plans, findings, steps, judgments, and release state
+  are Rust values reconstructed by replay.
+- **Explicit failure semantics.** Retryable and permanent errors are distinct
+  Rust types with operation-specific timeouts and retry policies.
+- **At-least-once side effects.** Delivery is designed for deduplication by
+  submission ID before increasing its attempt budget.
+- **Replay-aware upgrades.** All `temporalio-*` crates are pinned to `=0.5.0`.
+  Treat SDK and Workflow-code upgrades as deliberate compatibility work.
 
-- Model the contract between steps as **typed Rust values**, not loose strings.
-- Give every side effect an **explicit timeout and retry budget**, and mark
-  permanent failures non-retryable so they fail fast.
-- Treat external effects as **at-least-once** and deduplicate (delivery is capped
-  at one attempt until it dedupes by submission ID).
-- Prefer **one Workflow per unit of work** — Temporal scales by running many
-  Workflows, not by cramming requests into one. Consolidate into a
-  per-entity/window/region Workflow only when the domain needs aggregation,
-  ordering, windowing, or rate-limiting. A single long-lived Workflow ingesting
-  everything also needs continue-as-new for history growth, and is where the
-  preview Rust SDK is thinnest.
-- Pin **SDK versions** and treat upgrades as deliberate replay-compatibility
-  work; use **stable Workflow IDs** and **durable Signals**.
+The Temporal Rust SDK is in Public Preview, so APIs may evolve. Read
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design boundaries, failure
+behavior, and production gaps.
 
-### Production vs demo: the workflow-mode toggle
+## Developer reference
 
-The dashboard has an **Aggregate workflow** switch (and `POST /api/demo/mode`)
-that flips between the two shapes so you can show the difference live:
-
-- **Per confession (default, production):** one `ConfessionWorkflow` per
-  submission. In Temporal Web you see one Workflow per confession — the shape you
-  would ship.
-- **Aggregate (demo):** one long-lived `SessionWorkflow` for the whole session.
-  Every confession arrives by Signal and is folded into that single Workflow's
-  durable state via `state_mut`, so the entire board is one durable object you
-  can inspect with its `snapshot` query. In Temporal Web you see exactly one
-  Workflow.
-
-Both modes run the same Activities and report to the same dashboard; only the
-Workflow granularity differs. Switching modes resets the session so the two never
-interleave. Use the aggregate mode to make durable state vivid on stage; keep the
-per-confession mode as the production reference.
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
-
-## Useful commands
+### Useful commands
 
 | Command | Purpose |
 | --- | --- |
-| `make up` | Build and start Temporal, Stage, and Worker in the background |
-| `make down` | Stop the stack; retain named volumes |
+| `make up` | Build and start Temporal, Stage, and Worker |
+| `make down` | Stop the stack and retain named volumes |
 | `make build` | Build the Docker application image |
 | `make test` | Run `cargo test --locked` in the Docker test target |
-| `make lint` | Run formatting checks and Clippy with warnings denied |
+| `make lint` | Run formatting and Clippy with warnings denied |
 | `make logs` | Follow Stage and Worker logs |
 | `make status` | Show Compose service state |
-| `make naive-run` | Run the blocking, in-memory fixture agent in a temporary container |
-| `make naive-redeploy` | Stop the in-memory agent as a routine process replacement |
-| `make naive-forget` | Backwards-compatible alias for `make naive-redeploy` |
-| `make naive-restart` | Start a fresh naïve process and show that zero items recover |
-| `make begin-redeploy` | Stop the old Worker and open the visible deployment gap |
-| `make finish-redeploy` | Create the compatible replacement Worker |
-| `make kill-worker` | Optional hard-crash variation: send `SIGKILL` to the Worker |
-| `make restart-worker` | Restart a Worker stopped by the hard-crash variation |
-| `make partition-worker` | Disconnect the Worker from the Compose network (simulate a network partition) |
+| `make reset-demo` | Release unfinished Workflows and begin a fresh session |
+| `make begin-redeploy` | Stop the old Worker and open the demo gap |
+| `make finish-redeploy` | Start the compatible replacement Worker |
+| `make partition-worker` | Disconnect the Worker from the Compose network |
 | `make heal-worker` | Reconnect the Worker to the Compose network |
-| `make reset-demo` | Pause admissions, release unfinished Workflows, wait up to 12 seconds, then start a fresh session |
 
-For a completely clean rehearsal, including deleting both named volumes:
+Delete all local demo history and projection data only when you truly want a
+clean rehearsal:
 
 ```sh
 docker compose down -v
 docker compose up --build -d
 ```
 
-`down -v` permanently deletes local demo history and dashboard state. A normal
-`make down` does not.
-
-## Services and ports
+### Services and ports
 
 | Service | Host address | Purpose |
 | --- | --- | --- |
@@ -569,92 +499,67 @@ docker compose up --build -d
 | Temporal | `127.0.0.1:7233` | Temporal gRPC endpoint |
 | Temporal Web | `127.0.0.1:8233` | Workflow inspection UI |
 
-Inside Compose, the Worker calls the Stage at
+Inside Compose, the Worker reports to
 `http://stage:3000/api/internal` and both Rust processes reach Temporal at
 `http://temporal:7233`.
 
-## API quick reference
-
-The browser uses these unauthenticated demo endpoints:
+<details>
+<summary><strong>API quick reference</strong></summary>
 
 ```text
 GET  /healthz
 GET  /api/state
 POST /api/confessions       {"text":"I fixed the race with a sleep."}
 POST /api/demo/hold         {"held":true}
-POST /api/demo/mode         {"mode":"session"}   or {"mode":"per_confession"}
+POST /api/demo/mode         {"mode":"session"} or {"mode":"per_confession"}
 POST /api/demo/agent-mode   {"agent_mode":"autonomous"} or {"agent_mode":"linear"}
 POST /api/demo/seed
 POST /api/demo/reset
-POST /webhooks/twilio/messages   signed Twilio form; optional
+POST /webhooks/twilio/messages   signed Twilio form, optional
 ```
 
-`POST /api/confessions` also accepts an optional `Idempotency-Key` header for a
-stable browser-source submission identity.
+`POST /api/confessions` accepts an optional `Idempotency-Key` header. Internal
+endpoints require the shared Stage and Worker bearer token.
 
-The `/api/internal/*` endpoints require the shared bearer token configured for
-Stage and Worker. Compose binds all host ports to loopback, but the stage
-controls themselves do not require authentication; do not republish port `3000`
-directly to a LAN or the internet.
+</details>
 
-## Data and privacy
-
-Treat submissions as public conference content, not secrets:
-
-- Full confession text is stored in Temporal Workflow history. With the default
-  `SHOW_RAW_CONFESSIONS=false`, the Stage projection stores a placeholder
-  followed by the agent-produced `display_confession`, not the raw submission.
-  With `true`, normalized raw text is served by `/api/state` and persisted in the
-  `stage-data` volume.
-- OpenAI mode sends confession text and agent context to the configured model
-  provider.
-- The Twilio webhook path receives sender and recipient fields for
-  signature/request validation; the polling path never receives the sender
-  number at all. Either way, only a MessageSid-derived identity and the
-  confession are retained — no phone numbers in Stage or Workflow state.
-- Anyone who can reach the dashboard can view submissions and use its controls.
-- A model-produced stage-safe field reduces accidental projection of raw input;
-  it is not a substitute for human moderation or an enforceable content policy.
-- Raw mode is reported as `show_raw_confessions` in `/api/state`. It is a status
-  flag, not an access-control mechanism.
-- Temporal Web can expose raw Workflow and model-Activity payloads even when the
-  dashboard is in safe mode. Do not inspect arbitrary audience payloads on the
-  projector.
-- The demo has a 500-character input limit (`MAX_CONFESSION_CHARS`) and a default
-  cap of 20 submissions per session (`MAX_SUBMISSIONS_PER_SESSION`), but no
-  identity, authentication, per-client rate limiting, moderation queue, or
-  deletion workflow.
-- Docker container environment variables are visible to sufficiently privileged
-  local users. Use a secrets manager for a real deployment.
-- Never commit an API key. If you choose to use a `.env` file locally, add it to
-  `.gitignore` before creating it and verify the staged changes before pushing.
-
-Private repository visibility is not a substitute for those controls.
-
-## Repository map
+### Repository map
 
 ```text
-src/bin/stage.rs    HTTP server and dashboard process entry point
-src/bin/worker.rs   Temporal Worker process entry point
+src/bin/stage.rs    Rust/Axum stage server
+src/bin/worker.rs   Temporal Worker process
 src/bin/naive.rs    deliberately non-durable opening contrast
-src/stage.rs        API, projection store, Workflow start, and release Signal
 src/workflows.rs    deterministic durable agent orchestration
-src/activities.rs   model/tool/report/delivery side effects
+src/activities.rs   model, tool, report, and delivery side effects
 src/agent.rs        fixture and OpenAI agent backends
 src/domain.rs       shared serializable domain types
-src/twilio.rs       Twilio form parsing, signature checks, and keywords
-src/twilio_poll.rs  outbound-only polling of Twilio for inbound messages
-src/temporal.rs     Temporal client and Workflow start/Signal helpers
-src/moderation.rs   stage-safe sanitizing and word masking for raw display
-src/config.rs       environment-driven configuration
-src/lib.rs          module wiring and shared exports
-static/             stage dashboard
-tools/gen_qr.py     regenerate the confession QR for your own number
-compose.yaml        three-service local stack
+src/stage.rs        API, projection store, Workflow start, and release Signal
+src/twilio.rs       signed Twilio webhook handling
+src/twilio_poll.rs  outbound-only polling for inbound SMS
+static/             stage dashboard and placeholder QR
+tools/              QR and README diagram generators
+compose.yaml        local Temporal, Stage, and Worker stack
 ```
 
-For design boundaries, failure behavior, and production gaps, read
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+### Regenerate the README diagrams
+
+The static architecture SVG and animated redeploy GIF share one small renderer:
+
+```sh
+python3 -m pip install Pillow
+python3 tools/render_readme_diagrams.py
+```
+
+The generated files are committed so GitHub renders the README without a build
+step.
+
+## Talk and project materials
+
+- [Rust meetup recording](https://youtu.be/_t_Rxf8Z4mU?si=bqvJKqz_hZe2OheV)
+- ["Rust Can Fix That" slide deck](docs/media/rust-can-fix-that-slides.pdf)
+- [Deploy-and-resume MP4](docs/media/wall-of-regrets-walkthrough.mp4)
+- [Demo runbook](docs/DEMO_RUNBOOK.md)
+- [Architecture and production notes](docs/ARCHITECTURE.md)
 
 ## Acknowledgments
 
