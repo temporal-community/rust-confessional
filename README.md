@@ -46,10 +46,16 @@ The live talk used the name **Rust Confessional**. The booth display is the
 > **Durable approach:** Workflow state and Signals live in Temporal history. A
 > compatible replacement Worker replays that history and continues.
 
-![Animated comparison of process memory and Temporal history during the same Worker redeploy](docs/media/durable-agent-redeploy.gif)
+![Rust Confessional animation showing Ferris preserve a judgment through a Rust Worker redeploy with Temporal](docs/media/durable-agent-redeploy.gif)
 
-The animation shows the talk-sized thesis: **Rust runs the work. Temporal
-remembers where it was.**
+The animation follows one confession through the live demo beat. Ferris parks
+the judgment, the Rust Worker is redeployed, and the operator releases the
+reply during the gap. The process-only agent has nothing to resume. The
+Temporal-backed Rust agent replays Ferris's state and sends the judgment with a
+Rust prescription.
+
+That is the talk-sized thesis: **Rust runs the agent. Temporal remembers where
+Ferris was.**
 
 ## The problem
 

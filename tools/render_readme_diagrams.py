@@ -290,11 +290,11 @@ def chip(
 
 def draw_header(image: Image.Image, active_phase: int) -> None:
     draw = ImageDraw.Draw(image)
-    text(draw, (48, 42), "The same redeploy. Two different outcomes.", FONTS["title"], TEXT)
+    text(draw, (48, 42), "Ferris survives a Rust Worker redeploy.", FONTS["title"], TEXT)
     text(
         draw,
         (48, 82),
-        "Process memory disappears. Temporal history stays available to the next Rust Worker.",
+        "Same confession. Same human Signal. Only the durable agent can finish the judgment.",
         FONTS["subtitle"],
         MUTED,
     )
@@ -315,12 +315,24 @@ def draw_animation_frame(t: float) -> Image.Image:
 
     left = (35, 112, 585, 598)
     right = (615, 112, 1165, 598)
-    panel(image, left, "PROCESS MEMORY", RED)
-    panel(image, right, "DURABLE HISTORY", PURPLE)
+    panel(image, left, "NAIVE RUST AGENT", RED)
+    panel(image, right, "RUST AGENT + TEMPORAL", PURPLE)
 
     draw = ImageDraw.Draw(image)
-    text(draw, (62, 162), "A replacement starts empty", FONTS["subtitle"], MUTED)
-    text(draw, (642, 162), "A replacement replays history", FONTS["subtitle"], MUTED)
+    text(
+        draw,
+        (62, 162),
+        "Ferris's draft lives in process memory",
+        FONTS["subtitle"],
+        MUTED,
+    )
+    text(
+        draw,
+        (642, 162),
+        "Ferris's state lives in Workflow history",
+        FONTS["subtitle"],
+        MUTED,
+    )
 
     left_signal = (72, 238, 225, 318)
     right_signal = (652, 238, 805, 318)
@@ -328,6 +340,8 @@ def draw_animation_frame(t: float) -> Image.Image:
     right_worker = (922, 186, 1115, 312)
     temporal = (860, 392, 1115, 518)
 
+    chip(image, (62, 178), "CONFESSION: sleep() fixed race", ORANGE)
+    chip(image, (642, 178), "CONFESSION: sleep() fixed race", ORANGE)
     node(image, left_signal, "Release", "human input", accent=BLUE)
     node(image, right_signal, "Release", "human input", accent=BLUE)
 
@@ -336,8 +350,8 @@ def draw_animation_frame(t: float) -> Image.Image:
         node(
             image,
             left_worker,
-            "Rust Worker",
-            "reply pending in RAM",
+            "Ferris",
+            "draft held in RAM",
             accent=ORANGE,
             glow=0.8 * (1 - redeploy),
             alpha=old_alpha,
@@ -345,8 +359,8 @@ def draw_animation_frame(t: float) -> Image.Image:
         node(
             image,
             right_worker,
-            "Rust Worker",
-            "compatible code",
+            "Ferris",
+            "Rust agent loop",
             accent=ORANGE,
             glow=0.8 * (1 - redeploy),
             alpha=old_alpha,
@@ -364,19 +378,19 @@ def draw_animation_frame(t: float) -> Image.Image:
         image,
         temporal,
         "Temporal",
-        "history + Signal state",
+        "Ferris state + Signal",
         accent=PURPLE,
         glow=0.35 + 0.5 * signal,
     )
-    chip(image, (892, 524), "REPLY_PENDING", PURPLE)
+    chip(image, (886, 524), "WORKFLOW HISTORY", PURPLE)
 
     if t < 1.4:
-        chip(image, (369, 356), "STATE: HELD", ORANGE)
-        chip(image, (949, 330), "STATE: HELD", ORANGE)
+        chip(image, (359, 356), "REPLY: PARKED", ORANGE)
+        chip(image, (939, 330), "REPLY: PARKED", ORANGE)
 
     if 1.4 <= t < 2.9:
         fade = int(255 * min(1.0, redeploy + 0.15))
-        chip(image, (208, 375), "WORKER REDEPLOY", ORANGE, fade)
+        chip(image, (182, 375), "RUST WORKER REDEPLOY", ORANGE, fade)
         chip(image, (788, 554), "HISTORY REMAINS", PURPLE, fade)
 
     if signal > 0:
@@ -392,7 +406,7 @@ def draw_animation_frame(t: float) -> Image.Image:
         )
 
     if signal >= 0.93 and restart < 0.55:
-        chip(image, (333, 366), "SIGNAL LOST", RED)
+        chip(image, (72, 350), "SIGNAL LOST", RED)
         chip(image, (892, 558), "SIGNAL RECORDED", ORANGE)
 
     if restart > 0:
@@ -400,8 +414,8 @@ def draw_animation_frame(t: float) -> Image.Image:
         node(
             image,
             left_worker,
-            "New Worker",
-            "nothing to resume",
+            "Fresh Rust Worker",
+            "Ferris state is gone",
             accent=RED,
             glow=0.25 * restart,
             alpha=new_alpha,
@@ -409,8 +423,8 @@ def draw_animation_frame(t: float) -> Image.Image:
         node(
             image,
             right_worker,
-            "Fresh Worker",
-            "replays Workflow",
+            "Fresh Rust Worker",
+            "replays Ferris state",
             accent=GREEN if resume > 0.5 else ORANGE,
             glow=(0.25 + 0.65 * resume) * restart,
             alpha=new_alpha,
@@ -430,14 +444,21 @@ def draw_animation_frame(t: float) -> Image.Image:
 
     if resume > 0.72:
         done = phase_progress(resume, 0.72, 1.0)
-        chip(image, (400, 438), "NO RESULT", RED, int(255 * done))
-        chip(image, (1010, 558), "REPLY SENT", GREEN, int(255 * done))
+        chip(image, (382, 438), "NO JUDGMENT", RED, int(255 * done))
+        chip(
+            image,
+            (650, 558),
+            "RUST FIX: TYPED CHANNELS",
+            GREEN,
+            int(255 * done),
+        )
+        chip(image, (982, 558), "SENT", GREEN, int(255 * done))
 
     phase_labels = (
-        ("1  Reply pending", t < 1.4),
-        ("2  Worker redeploy", 1.4 <= t < 2.8),
-        ("3  Signal during gap", 2.8 <= t < 6.3),
-        ("4  Fresh Worker resumes", t >= 6.3),
+        ("1  Ferris parks the reply", t < 1.4),
+        ("2  Rust Worker redeploy", 1.4 <= t < 2.8),
+        ("3  Release Signal during gap", 2.8 <= t < 6.3),
+        ("4  Ferris resumes and sends the Rust fix", t >= 6.3),
     )
     active = next((label for label, selected in phase_labels if selected), phase_labels[-1][0])
     draw.rounded_rectangle((35, 620, 1165, 658), radius=12, fill=rgba("#11131c"))
