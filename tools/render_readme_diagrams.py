@@ -242,7 +242,26 @@ def path(
         ld.line(points, fill=rgba(color, int(190 * glow)), width=width + 8, joint="curve")
         layer = layer.filter(ImageFilter.GaussianBlur(9))
         image.alpha_composite(layer)
-    ImageDraw.Draw(image).line(points, fill=rgba(color, alpha), width=width, joint="curve")
+    draw = ImageDraw.Draw(image)
+    draw.line(points, fill=rgba(color, alpha), width=width, joint="curve")
+
+    # A small directional marker keeps the flow readable when the GIF is
+    # paused or shown as a static preview.
+    end_x, end_y = points[-1]
+    prev_x, prev_y = points[-3]
+    delta_x, delta_y = end_x - prev_x, end_y - prev_y
+    distance = max((delta_x**2 + delta_y**2) ** 0.5, 0.001)
+    unit_x, unit_y = delta_x / distance, delta_y / distance
+    base_x, base_y = end_x - 10 * unit_x, end_y - 10 * unit_y
+    perp_x, perp_y = -unit_y, unit_x
+    draw.polygon(
+        (
+            (end_x, end_y),
+            (base_x + 5 * perp_x, base_y + 5 * perp_y),
+            (base_x - 5 * perp_x, base_y - 5 * perp_y),
+        ),
+        fill=rgba(color, alpha),
+    )
 
 
 def particle(
@@ -290,18 +309,31 @@ def chip(
 
 def draw_header(image: Image.Image, active_phase: int) -> None:
     draw = ImageDraw.Draw(image)
-    text(draw, (48, 42), "Ferris survives a Rust Worker redeploy.", FONTS["title"], TEXT)
     text(
         draw,
-        (48, 82),
-        "Same confession. Same human Signal. Only the durable agent can finish the judgment.",
+        (48, 18),
+        "RUST CONFESSIONAL  /  ONE CONFESSION, TWO OUTCOMES",
+        FONTS["panel"],
+        ORANGE,
+    )
+    text(
+        draw,
+        (48, 50),
+        "Can Ferris finish after a Rust Worker redeploy?",
+        FONTS["title"],
+        TEXT,
+    )
+    text(
+        draw,
+        (48, 88),
+        'Confession: "I fixed the race condition with a sleep."',
         FONTS["subtitle"],
         MUTED,
     )
     for index in range(4):
         x = 1015 + index * 34
         color = ORANGE if index <= active_phase else "#36394a"
-        draw.ellipse((x, 45, x + 12, 57), fill=rgba(color))
+        draw.ellipse((x, 52, x + 12, 64), fill=rgba(color))
 
 
 def draw_animation_frame(t: float) -> Image.Image:
@@ -315,21 +347,21 @@ def draw_animation_frame(t: float) -> Image.Image:
 
     left = (35, 112, 585, 598)
     right = (615, 112, 1165, 598)
-    panel(image, left, "NAIVE RUST AGENT", RED)
-    panel(image, right, "RUST AGENT + TEMPORAL", PURPLE)
+    panel(image, left, "PROCESS-ONLY RUST AGENT", RED)
+    panel(image, right, "DURABLE RUST AGENT", PURPLE)
 
     draw = ImageDraw.Draw(image)
     text(
         draw,
         (62, 162),
-        "Ferris's draft lives in process memory",
+        "Ferris's draft exists only in RAM",
         FONTS["subtitle"],
         MUTED,
     )
     text(
         draw,
         (642, 162),
-        "Ferris's state lives in Workflow history",
+        "Ferris's state is recorded by Temporal",
         FONTS["subtitle"],
         MUTED,
     )
@@ -337,11 +369,9 @@ def draw_animation_frame(t: float) -> Image.Image:
     left_signal = (72, 238, 225, 318)
     right_signal = (652, 238, 805, 318)
     left_worker = (342, 214, 535, 340)
-    right_worker = (922, 186, 1115, 312)
+    right_worker = (922, 214, 1115, 340)
     temporal = (860, 392, 1115, 518)
 
-    chip(image, (62, 178), "CONFESSION: sleep() fixed race", ORANGE)
-    chip(image, (642, 178), "CONFESSION: sleep() fixed race", ORANGE)
     node(image, left_signal, "Release", "human input", accent=BLUE)
     node(image, right_signal, "Release", "human input", accent=BLUE)
 
@@ -368,7 +398,7 @@ def draw_animation_frame(t: float) -> Image.Image:
 
     left_route = bezier((225, 278), (270, 278), (305, 278), (342, 278))
     right_signal_route = bezier((805, 278), (850, 278), (860, 350), (930, 392))
-    temporal_worker_route = bezier((1030, 392), (1060, 350), (1030, 330), (1018, 312))
+    temporal_worker_route = bezier((1030, 392), (1060, 370), (1030, 350), (1018, 340))
 
     path(image, left_route, color=FAINT, alpha=150)
     path(image, right_signal_route, color=FAINT, alpha=150)
@@ -386,7 +416,7 @@ def draw_animation_frame(t: float) -> Image.Image:
 
     if t < 1.4:
         chip(image, (359, 356), "REPLY: PARKED", ORANGE)
-        chip(image, (939, 330), "REPLY: PARKED", ORANGE)
+        chip(image, (939, 356), "REPLY: PARKED", ORANGE)
 
     if 1.4 <= t < 2.9:
         fade = int(255 * min(1.0, redeploy + 0.15))
@@ -430,7 +460,7 @@ def draw_animation_frame(t: float) -> Image.Image:
             alpha=new_alpha,
         )
         chip(image, (365, 361), "STATE: EMPTY", RED, new_alpha)
-        chip(image, (943, 330), "STATE: RESTORED", GREEN, new_alpha)
+        chip(image, (943, 356), "STATE: RESTORED", GREEN, new_alpha)
 
     if resume > 0:
         path(
@@ -448,7 +478,7 @@ def draw_animation_frame(t: float) -> Image.Image:
         chip(
             image,
             (650, 558),
-            "RUST FIX: TYPED CHANNELS",
+            "RUST FIX: USE TYPED CHANNELS",
             GREEN,
             int(255 * done),
         )

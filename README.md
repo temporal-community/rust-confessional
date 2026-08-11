@@ -48,11 +48,11 @@ The live talk used the name **Rust Confessional**. The booth display is the
 
 ![Rust Confessional animation showing Ferris preserve a judgment through a Rust Worker redeploy with Temporal](docs/media/durable-agent-redeploy.gif)
 
-The animation follows one confession through the live demo beat. Ferris parks
-the judgment, the Rust Worker is redeployed, and the operator releases the
-reply during the gap. The process-only agent has nothing to resume. The
-Temporal-backed Rust agent replays Ferris's state and sends the judgment with a
-Rust prescription.
+The animation follows the familiar confession, "I fixed the race condition
+with a sleep," through the live demo beat. Ferris parks the judgment, the Rust
+Worker is redeployed, and the operator releases the reply during the gap. The
+process-only agent has nothing to resume. The Temporal-backed Rust agent
+replays Ferris's state and sends the judgment with a Rust prescription.
 
 That is the talk-sized thesis: **Rust runs the agent. Temporal remembers where
 Ferris was.**
