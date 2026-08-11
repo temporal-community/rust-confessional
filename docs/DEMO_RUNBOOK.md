@@ -63,13 +63,13 @@ supposed to block until the other terminal replaces it.
 Use two terminal tabs, two browser tabs, and optionally a third terminal for
 logs.
 
-Terminal A — naïve process first, then durable status/replacement commands:
+Terminal A: naïve process first, then durable status/replacement commands:
 
 ```sh
 make status
 ```
 
-Terminal B — deployment commands. Optional Terminal C — logs:
+Terminal B: deployment commands. Optional Terminal C: logs:
 
 ```sh
 make logs
@@ -146,7 +146,7 @@ The fixture agent prints `RECEIVED`, `PLANNING`, `TOOL`, and `COMPOSING`, then
 stops here:
 
 ```text
-REPLY PENDING  memory only — replace this container now
+REPLY PENDING  memory only: replace this container now
 Pending confessions in this process: 1
 ```
 
@@ -166,7 +166,7 @@ The fresh process has no input or external history and prints:
 
 ```text
 Recovered pending confessions: 0
-Nothing to resume—the process memory is empty.
+Nothing to resume: the process memory is empty.
 ```
 
 Speaker line:
@@ -371,7 +371,7 @@ service merely to collect audience input; doing so would expose those operator
 controls as well.
 
 For audience SMS, configure the optional signed Twilio webhook as described in
-[the README](../README.md#optional-inbound-sms-twilio). Put a path-restricted
+the [Twilio input guide](TWILIO.md). Put a path-restricted
 HTTPS reverse proxy in front of only `/webhooks/twilio/messages`; a normal tunnel
 to port `3000` exposes the entire Stage service and is not suitable.
 

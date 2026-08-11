@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="780" viewBox="0 0 1400 780" role="img" aria-labelledby="title desc">
-  <title id="title">Wall of Regrets durable agent architecture</title>
+  <title id="title">Rust Confessional durable agent architecture</title>
   <desc id="desc">Audience input enters the Rust Stage, which starts or signals a Temporal Workflow. A Rust Worker replays deterministic Workflow state and runs model, catalog, projection, and delivery Activities. Temporal history remains the source of truth across Worker redeploys.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">

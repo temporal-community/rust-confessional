@@ -1,8 +1,9 @@
 # Architecture
 
-Wall of Regrets is a small durable-agent reference demo, not a production
-service. It separates deterministic orchestration from non-deterministic work
-and makes the Worker process safe to replace at a controlled point.
+Rust Confessional is a small durable-agent reference demo, not a production
+service. Wall of Regrets is its passive booth display mode. The system separates
+deterministic orchestration from non-deterministic work and makes the Worker
+process safe to replace at a controlled point.
 
 ## Opening contrast: the naïve binary
 
