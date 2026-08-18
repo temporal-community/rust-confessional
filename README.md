@@ -1,3 +1,5 @@
+# Rust Confessional
+
 <div align="center">
 
 [![Rust](https://img.shields.io/badge/Rust-1.88%2B-dea584?logo=rust&logoColor=white)](Cargo.toml)
@@ -7,8 +9,6 @@
 [![Watch the talk](https://img.shields.io/badge/Watch-the_talk-ff0033?logo=youtube&logoColor=white)](https://youtu.be/_t_Rxf8Z4mU?si=bqvJKqz_hZe2OheV)
 
 </div>
-
-# Rust Confessional
 
 **An audience-powered AI agent built in Rust that keeps its place while Workers
 come and go.**
