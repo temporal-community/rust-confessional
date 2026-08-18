@@ -3,6 +3,7 @@
 [![Rust](https://img.shields.io/badge/Rust-1.88%2B-dea584?logo=rust&logoColor=white)](Cargo.toml)
 [![Temporal Rust SDK](https://img.shields.io/badge/Temporal_Rust_SDK-0.5.0-635bff)](https://github.com/temporalio/sdk-rust)
 [![Docker Compose](https://img.shields.io/badge/Run_with-Docker_Compose-2496ed?logo=docker&logoColor=white)](compose.yaml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Watch the talk](https://img.shields.io/badge/Watch-the_talk-ff0033?logo=youtube&logoColor=white)](https://youtu.be/_t_Rxf8Z4mU?si=bqvJKqz_hZe2OheV)
 
 </div>
@@ -292,3 +293,17 @@ build step.
 
 - Built with the [Temporal Rust SDK](https://github.com/temporalio/sdk-rust)
 - Ferris is the unofficial Rust mascot
+
+## License
+
+This project is available under the [MIT License](LICENSE).
+
+## Watch the talk
+
+<div align="center">
+
+[![Watch the Rust Confessional talk](https://img.youtube.com/vi/_t_Rxf8Z4mU/maxresdefault.jpg)](https://youtu.be/_t_Rxf8Z4mU?si=bqvJKqz_hZe2OheV)
+
+*Rust Confessional: watch the full meetup talk on YouTube.*
+
+</div>
